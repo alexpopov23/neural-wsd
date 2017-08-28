@@ -316,7 +316,7 @@ if __name__ == "__main__":
     mode = args.mode
     wsd_method = args.wsd_method
     sense_embeddings_path = args.sense_embeddings_src_path
-    embeddings_model_path = args.word_embeddings_src_path
+    word_embeddings_src_path = args.word_embeddings_src_path
     lemma_embeddings_src_path = args.lemma_embeddings_src_path
     word_embedding_method = args.word_embedding_method
     word_embedding_dim = int(args.word_embedding_dim)
@@ -328,8 +328,9 @@ if __name__ == "__main__":
     id2src = {}
     id2src_lemmas = {}
     src2id_lemmas = {}
+    # TODO: write separate functions for each way of loading and put those in data_ops
     if word_embedding_method == "gensim":
-        word_embeddings_model = KeyedVectors.load_word2vec_format(embeddings_model_path, binary=False)
+        word_embeddings_model = KeyedVectors.load_word2vec_format(word_embeddings_src_path, binary=False)
         word_embeddings = word_embeddings_model.syn0
         id2src = word_embeddings_model.index2word
         for i, word in enumerate(id2src):
@@ -343,7 +344,7 @@ if __name__ == "__main__":
         with tf.Graph().as_default(), tf.Session() as session:
             opts = w2v.Options()
             opts.train_data = args.word_embeddings_src_train_data
-            opts.save_path = embeddings_model_path
+            opts.save_path = word_embeddings_src_path
             opts.emb_dim = word_embedding_dim
             model = w2v.Word2Vec(opts, session)
             ckpt = tf.train.get_checkpoint_state(args.word_embeddings_src_save_path)
@@ -357,11 +358,12 @@ if __name__ == "__main__":
             word_embeddings = tf.nn.l2_normalize(word_embeddings, 1).eval()
             #word_embeddings = np.vstack((word_embeddings, word_embedding_dim * [0.0]))
     elif word_embedding_method == "glove":
-        word_embeddings, src2id, id2src = data_ops_final_addlemmas.loadGloveModel(embeddings_model_path)
+        word_embeddings, src2id, id2src = data_ops_final_addlemmas.loadGloveModel(word_embeddings_src_path)
         word_embeddings = np.asarray(word_embeddings)
         src2id["UNK"] = src2id["unk"]
         del src2id["unk"]
     if "UNK" not in src2id:
+        #TODO use a random distribution rather
         unk = np.zeros(word_embedding_dim)
         src2id["UNK"] = len(src2id)
         word_embeddings = np.concatenate((word_embeddings, [unk]))
@@ -373,6 +375,7 @@ if __name__ == "__main__":
         for i, word in enumerate(id2src_lemmas):
             src2id_lemmas[word] = i
         if "UNK" not in src2id_lemmas:
+            # TODO use a random distribution rather
             unk = np.zeros(lemma_embedding_dim)
             src2id_lemmas["UNK"] = len(src2id_lemmas)
             lemma_embeddings = np.concatenate((lemma_embeddings, [unk]))
@@ -396,9 +399,11 @@ if __name__ == "__main__":
     data = args.training_data
     known_lemmas = set()
     if data_source == "default":
-        data, lemma2synsets, lemma2id, synset2id, id2synset, id2pos = data_ops_final_addlemmas.read_folder_semcor(data, lexicon_mode=lexicon_mode, f_lex=lexicon)
+        data, lemma2synsets, lemma2id, synset2id, id2synset, id2pos = \
+            data_ops_final_addlemmas.read_folder_semcor(data, lexicon_mode=lexicon_mode, f_lex=lexicon)
     elif data_source == "uniroma":
-        data, lemma2synsets, lemma2id, synset2id, id2synset, id2pos, known_lemmas, synset2freq = data_ops_final_addlemmas.read_data_uniroma(data, lexicon_mode=lexicon_mode, f_lex=lexicon)
+        data, lemma2synsets, lemma2id, synset2id, id2synset, id2pos, known_lemmas, synset2freq = \
+            data_ops_final_addlemmas.read_data_uniroma(data, lexicon_mode=lexicon_mode, f_lex=lexicon)
     #random.shuffle(data)
     #train_data = data[:partition]
     test_data = args.test_data

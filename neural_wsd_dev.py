@@ -224,36 +224,36 @@ def run_epoch(session, model, data, keep_prob, mode):
 
 if __name__ == "__main__":
 
-    parser = argparse.ArgumentParser(version='1.0',description='Train a neural POS tagger.')
-    parser.add_argument("-data_source", dest="data_source", required=False, default="default",
-                        help="Which corpus are we using? Needed to determine how to read the data.")
+    parser = argparse.ArgumentParser(version='1.0',description='Train a neural WSD tagger.')
+    parser.add_argument("-data_source", dest="data_source", required=False, default="uniroma",
+                        help="Which corpus are we using? Needed to determine how to read the data. Options: naf, uniroma")
     parser.add_argument("-mode", dest="mode", required=False, default="train",
                         help="Is this is a training run or an application run? Options: train, application")
-    parser.add_argument('-wsd_method', dest='wsd_method', required=True, default="similarity",
+    parser.add_argument('-wsd_method', dest='wsd_method', required=True, default="fullsoftmax",
                         help='Which method is used for the final, WSD step: similarity or fullsoftmax?')
     parser.add_argument('-word_embedding_method', dest='word_embedding_method', required=True, default="tensorflow",
                         help='Which method is used for loading the pretrained embeddings: tensorflow, gensim, glove?')
-    parser.add_argument('-lemmas_and_synsets', dest='lemmas_and_synsets', required=False,
+    parser.add_argument('-joint_embeddings', dest='joint_embedding', required=False,
                         help='Whether lemmas and synsets are jointly embedded.')
     parser.add_argument('-word_embedding_input', dest='word_embedding_input', required=False, default="wordform",
                         help='Are these embeddings of wordforms or lemmas (options are: wordform, lemma)?')
+    parser.add_argument('-word_embedding_case', dest='word_embedding_case', required=False, default="lowercase",
+                        help='Are the word embeddings trained on lowercased or mixedcased text? Options: lowercase, mixedcase')
     parser.add_argument('-embeddings_load_script', dest='embeddings_load_script', required=False, default="None",
                         help='Path to the Python file that creates the word2vec object.')
     parser.add_argument('-word_embeddings_src_path', dest='word_embeddings_src_path', required=True,
-                        help='The path to the pretrained model with the word embeddings (for the source language).')
-    parser.add_argument('-lemma_embeddings', dest='lemma_embeddings', required=False,
-                        help='The path to the pretrained model with the lemma embeddings (for the source language).')
+                        help='The path to the pretrained model with the word embeddings.')
     parser.add_argument('-word_embeddings_src_train_data', dest='word_embeddings_src_train_data', required=False,
-                        help='The path to the corpus used for training the word embeddings for the source language.')
+                        help='The path to the corpus used for training the word embeddings for the source language (tensorflow model).')
     parser.add_argument('-word_embedding_dim', dest='word_embedding_dim', required=True,
                         help='Size of the word embedding vectors.')
-    parser.add_argument('-word_embedding_case', dest='word_embedding_case', required=False, default="lowercase",
-                        help='Are the word embeddings trained on lowercased or mixedcased text?')
+    parser.add_argument('-lemma_embeddings_src_path', dest='lemma_embeddings_src_path', required=False,
+                        help='The path to the pretrained model with the lemma embeddings.')
     parser.add_argument('-sense_embeddings_src_path', dest='sense_embeddings_src_path', required=False, default="None",
                         help='If a path to sense embeddings is passed to the script, label generation is done using them.')
     parser.add_argument('-learning_rate', dest='learning_rate', required=False, default=0.3,
                         help='How fast should the network learn.')
-    parser.add_argument('-training_iterations', dest='training_iters', required=False, default=10000,
+    parser.add_argument('-training_iterations', dest='training_iters', required=False, default=100000,
                         help='How many iterations should the network train for.')
     parser.add_argument('-batch_size', dest='batch_size', required=False, default=128,
                         help='Size of the training batches.')
@@ -263,31 +263,33 @@ if __name__ == "__main__":
                         help='Number of the hidden LSTMs in the forward/backward modules.')
     parser.add_argument('-sequence_width', dest='seq_width', required=False, default=50,
                         help='Maximum length of a sentence to be passed to the network (the rest is cut off).')
+    parser.add_argument('-keep_prob', dest='keep_prob', required=False, default="1",
+                        help='The probability of keeping an element output in a layer (for dropout)')
+    parser.add_argument('-dropword', dest='dropword', required=False, default="0",
+                        help='The probability of keeping an input word (dropword)')
     parser.add_argument('-training_data', dest='training_data', required=True, default="brown",
                         help='The path to the gold corpus used for training/testing.')
     parser.add_argument('-data_partition', dest='partition_point', required=False, default="0.9",
                         help='Where to take the test data from, if using just one corpus (SemCor).')
     parser.add_argument('-test_data', dest='test_data', required=False, default="None",
                         help='The path to the gold corpus used for testing.')
-    parser.add_argument('-lexicon_mode', dest='lexicon_mode', required=False, default="full dictionary",
-                        help='Whether to use a lexicon or only the senses attested in the corpora: *full_dictionary* or *attested_senses*.')
     parser.add_argument('-lexicon', dest='lexicon', required=False, default="None",
                         help='The path to the location of the lexicon file.')
+    parser.add_argument('-lexicon_mode', dest='lexicon_mode', required=False, default="full_dictionary",
+                        help='Whether to use a lexicon or only the senses attested in the corpora: *full_dictionary* or *attested_senses*.')
     parser.add_argument('-save_path', dest='save_path', required=False, default="None",
                         help='Path to where the model should be saved.')
-    parser.add_argument('-keep_prob', dest='keep_prob', required=False, default="1",
-                        help='The probability of keeping an element output in a layer (for dropout)')
-    parser.add_argument('-dropword', dest='dropword', required=False, default="0",
-                        help='The probability of keeping an input word (dropword)')
+
 
     # read the parameters for the model and the data
     args = parser.parse_args()
     data_source = args.data_source
     mode = args.mode
     wsd_method = args.wsd_method
-    lemmas_and_synsets = args.lemmas_and_synsets
+    joint_embedding = args.joint_embedding
     sense_embeddings_path = args.sense_embeddings_src_path
-    embeddings_model_path = args.word_embeddings_src_path
+    word_embeddings_src_path = args.word_embeddings_src_path
+    lemma_embeddings_src_path = args.lemma_embeddings_src_path
     word_embedding_method = args.word_embedding_method
     word_embedding_dim = int(args.word_embedding_dim)
     word_embedding_case = args.word_embedding_case
@@ -297,7 +299,7 @@ if __name__ == "__main__":
     src2id = {}
     id2src = {}
     if word_embedding_method == "gensim":
-        word_embeddings_model = KeyedVectors.load_word2vec_format(embeddings_model_path, binary=False)
+        word_embeddings_model = KeyedVectors.load_word2vec_format(word_embeddings_src_path, binary=False)
         word_embeddings = word_embeddings_model.syn0
         id2src = word_embeddings_model.index2word
         for i, word in enumerate(id2src):
@@ -311,7 +313,7 @@ if __name__ == "__main__":
         with tf.Graph().as_default(), tf.Session() as session:
             opts = w2v.Options()
             opts.train_data = args.word_embeddings_src_train_data
-            opts.save_path = embeddings_model_path
+            opts.save_path = word_embeddings_src_path
             opts.emb_dim = word_embedding_dim
             model = w2v.Word2Vec(opts, session)
             ckpt = tf.train.get_checkpoint_state(args.word_embeddings_src_save_path)
@@ -325,7 +327,7 @@ if __name__ == "__main__":
             word_embeddings = tf.nn.l2_normalize(word_embeddings, 1).eval()
             #word_embeddings = np.vstack((word_embeddings, word_embedding_dim * [0.0]))
     elif word_embedding_method == "glove":
-        word_embeddings, src2id, id2src = data_ops_final.loadGloveModel(embeddings_model_path)
+        word_embeddings, src2id, id2src = data_ops_final.loadGloveModel(word_embeddings_src_path)
         word_embeddings = np.asarray(word_embeddings)
         src2id["UNK"] = src2id["unk"]
         del src2id["unk"]
@@ -351,7 +353,7 @@ if __name__ == "__main__":
 
     data = args.training_data
     known_lemmas = set()
-    if data_source == "default":
+    if data_source == "naf":
         data, lemma2synsets, lemma2id, synset2id, id2synset, id2pos = \
             data_ops_final.read_folder_semcor(data, lexicon_mode=lexicon_mode, f_lex=lexicon)
     elif data_source == "uniroma":
@@ -392,7 +394,7 @@ if __name__ == "__main__":
     # get synset embeddings if a path to a model is passed
     if sense_embeddings_path != "None":
         label_mappings = {}
-        if lemmas_and_synsets:
+        if joint_embedding:
             sense_embeddings_model = word_embeddings_model
         else:
             sense_embeddings_model = KeyedVectors.load_word2vec_format(sense_embeddings_path, binary=False)

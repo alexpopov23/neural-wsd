@@ -14,8 +14,6 @@ from nltk.corpus import wordnet
 
 npa = np.array
 
-# test github connection
-
 def build_sense_ids(data):
     words = set()
     word_to_senses = {}

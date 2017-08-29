@@ -354,7 +354,7 @@ def read_data_uniroma (path, lemma2synsets={}, lemma2id={}, synset2id={}, known_
         id2synset[id] = synset
         pos = synset.split("-")[1]
         id2pos[id] = pos
-    wtd = []
+    words_to_disambiguate = []
     count_ambig = 0
     count_missing1 = 0
     count_missing2 = 0
@@ -365,7 +365,6 @@ def read_data_uniroma (path, lemma2synsets={}, lemma2id={}, synset2id={}, known_
                     count_ambig += 1
                 synsets = []
                 # check if lemma is known
-                #if word[1] not in lemma2synsets:
                 if word[1] not in known_lemmas:
                     if len(lemma2synsets[word[1]]) == 1:
                         count_missing1 += 1
@@ -391,7 +390,7 @@ def read_data_uniroma (path, lemma2synsets={}, lemma2id={}, synset2id={}, known_
                         #     id2pos[id] = pos
                         synsets.append(synset2id[syn])
                 word.append(synsets)
-                wtd.append(word)
+                words_to_disambiguate.append(word)
             else:
                 word.append([-1])
     return data, lemma2synsets, lemma2id, synset2id, id2synset, id2pos, known_lemmas, synset2freq

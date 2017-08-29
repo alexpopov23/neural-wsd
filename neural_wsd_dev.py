@@ -15,79 +15,161 @@ from copy import copy
 from sklearn.metrics.pairwise import cosine_similarity
 
 
+# class ModelSingleSoftmax:
+#     #TODO make model work with batches (no reason not to use them before the WSD part, I think)
+#     def __init__(self, is_first, synset2id, word_embedding_dim, vocab_size,
+#                  batch_size, seq_width, n_hidden, n_hidden_layers,
+#                  val_inputs, val_seq_lengths, val_flags, val_indices, val_labels):
+#         self.emb_placeholder = tf.placeholder(tf.float32, shape=[vocab_size, word_embedding_dim])
+#         self.embeddings = tf.Variable(self.emb_placeholder)
+#         self.set_embeddings = tf.assign(self.embeddings, self.emb_placeholder, validate_shape=False)
+#         # self.embeddings = tf.get_variable(name="W", shape=[len(src2id), word_embedding_dim], dtype=tf.float32,
+#         #                     initializer=tf.constant_initializer(word_embeddings), trainable=True)
+#         # weights and biases for the transorfmation after the RNN
+#         #TODO pick an initializer
+#         self.weights = tf.get_variable(name="softmax-w", shape=[2*n_hidden, len(synset2id)], dtype=tf.float32)
+#         self.biases = tf.get_variable(name="softmax-b", shape=[len(synset2id)], dtype=tf.float32)
+#         self.train_inputs = tf.placeholder(tf.int32, shape=[batch_size, seq_width])
+#         self.train_seq_lengths = tf.placeholder(tf.int32, shape=[batch_size])
+#         self.train_model_flags = tf.placeholder(tf.bool, shape=[batch_size, seq_width])
+#         self.train_labels = tf.placeholder(tf.int32, shape=[None, len(synset2id)])
+#         self.train_indices = tf.placeholder(tf.int32, shape=[None])
+#         self.val_inputs = tf.constant(val_inputs, tf.int32)
+#         self.val_seq_lengths = tf.constant(val_seq_lengths, tf.int32)
+#         self.val_flags = tf.constant(val_flags, tf.bool)
+#         #self.val_labels = tf.constant(val_labels, tf.int32)
+#         self.place = tf.placeholder(tf.int32, shape=val_labels.shape)
+#         self.val_labels = tf.Variable(self.place)
+#         self.val_indices = tf.constant(val_indices, tf.int32)
+#         self.keep_prob = tf.placeholder(tf.float32)
+#
+#         reuse = None if is_first else True
+#
+#         # create parameters for all word sense models
+#         #with tf.variable_scope("word-sense-models") as scope:
+#         #with tf.variable_scope(tf.get_variable_scope()) as scope:
+#
+#         def biRNN_WSD (inputs, seq_lengths, indices, embeddings, weights, biases, labels, is_training, keep_prob):
+#
+#
+#             with tf.variable_scope(tf.get_variable_scope()) as scope:
+#
+#                 # Bidirectional recurrent neural network with LSTM cells
+#                 initializer = tf.random_uniform_initializer(-1, 1)
+#                 # with tf.variable_scope('forward'):
+#                 # TODO: Use state_is_tuple=True
+#                 # TODO: add dropout
+#                 fw_cell = tf.contrib.rnn.LSTMCell(n_hidden, initializer=initializer)
+#                 if is_training:
+#                     fw_cell = tf.contrib.rnn.DropoutWrapper(fw_cell, input_keep_prob=keep_prob, output_keep_prob=keep_prob)
+#                 fw_multicell = tf.contrib.rnn.MultiRNNCell([fw_cell] * n_hidden_layers)
+#
+#                 # with tf.variable_scope('backward'):
+#                 # TODO: Use state_is_tuple=True
+#                 # TODO: add dropout
+#                 bw_cell = tf.contrib.rnn.LSTMCell(n_hidden, initializer=initializer)
+#                 if is_training:
+#                     bw_cell = tf.contrib.rnn.DropoutWrapper(bw_cell, input_keep_prob=keep_prob, output_keep_prob=keep_prob,)
+#                 bw_multicell = tf.contrib.rnn.MultiRNNCell([bw_cell] * n_hidden_layers)
+#
+#                 embedded_inputs = tf.nn.embedding_lookup(embeddings, inputs)
+#                 #embedded_inputs = tf.unstack(tf.transpose(embedded_inputs, [1, 0, 2]))
+#                 #embedded_inputs = tf.transpose(embedded_inputs, [1, 0, 2])
+#
+#                 # Get the blstm cell output
+#                 # rnn_outputs, _ = tf.nn.bidirectional_dynamic_rnn(fw_cell, bw_cell, embedded_inputs, dtype="float32",
+#                 #                                                  sequence_length=seq_lengths)
+#                 rnn_outputs, _ = tf.nn.bidirectional_dynamic_rnn(fw_multicell, bw_multicell, embedded_inputs, dtype="float32",
+#                                                                  sequence_length=seq_lengths)
+#
+#                 rnn_outputs = tf.concat(rnn_outputs, 2)
+#                 #rnn_outputs = tf.nn.dropout(rnn_outputs, keep_prob)
+#                 #rnn_outputs = tf.transpose(rnn_outputs, [1, 0, 2])
+#
+#                 scope.reuse_variables()
+#
+#                 rnn_outputs = tf.reshape(rnn_outputs, [-1, 2*n_hidden])
+#                 target_outputs = tf.gather(rnn_outputs, indices)
+#                 logits = tf.matmul(target_outputs, weights) + biases
+#                 losses = tf.nn.softmax_cross_entropy_with_logits(logits=logits, labels=labels)
+#                 cost = tf.reduce_mean(losses)
+#
+#             return cost, logits
+#
+#         self.cost, self.logits = biRNN_WSD(self.train_inputs, self.train_seq_lengths, self.train_indices,
+#                                            self.embeddings, self.weights, self.biases, self.train_labels,
+#                                            True, self.keep_prob)
+#         self.train_op = tf.train.GradientDescentOptimizer(learning_rate).minimize(self.cost)
+#         #self.train_op = tf.train.RMSPropOptimizer(learning_rate, decay=0.96, momentum=0.1).minimize(self.cost)
+#         #self.train_op = tf.train.AdagradOptimizer(learning_rate).minimize(self.cost)
+#         #scope.reuse_variables()
+#         tf.get_variable_scope().reuse_variables()
+#         _, self.val_logits = biRNN_WSD(self.val_inputs, self.val_seq_lengths, self.val_indices,
+#                                        self.embeddings, self.weights, self.biases, self.val_labels,
+#                                        False, 1.0)
+
 class ModelSingleSoftmax:
     #TODO make model work with batches (no reason not to use them before the WSD part, I think)
-    def __init__(self, is_first, synset2id, word_embedding_dim, vocab_size,
+    def __init__(self, synset2id, word_embedding_dim, vocab_size,
                  batch_size, seq_width, n_hidden, n_hidden_layers,
-                 val_inputs, val_seq_lengths, val_flags, val_indices, val_labels):
+                 val_inputs, val_input_lemmas, val_seq_lengths, val_flags, val_indices, val_labels,
+                 lemma_embedding_dim, vocab_size_lemmas):
         self.emb_placeholder = tf.placeholder(tf.float32, shape=[vocab_size, word_embedding_dim])
         self.embeddings = tf.Variable(self.emb_placeholder)
         self.set_embeddings = tf.assign(self.embeddings, self.emb_placeholder, validate_shape=False)
-        # self.embeddings = tf.get_variable(name="W", shape=[len(src2id), word_embedding_dim], dtype=tf.float32,
-        #                     initializer=tf.constant_initializer(word_embeddings), trainable=True)
-        # weights and biases for the transorfmation after the RNN
+        self.emb_placeholder_lemmas = tf.placeholder(tf.float32, shape=[vocab_size_lemmas, lemma_embedding_dim])
+        self.embeddings_lemmas = tf.Variable(self.emb_placeholder_lemmas)
+        self.set_embeddings_lemmas = tf.assign(self.embeddings_lemmas, self.emb_placeholder_lemmas, validate_shape=False)
         #TODO pick an initializer
         self.weights = tf.get_variable(name="softmax-w", shape=[2*n_hidden, len(synset2id)], dtype=tf.float32)
         self.biases = tf.get_variable(name="softmax-b", shape=[len(synset2id)], dtype=tf.float32)
         self.train_inputs = tf.placeholder(tf.int32, shape=[batch_size, seq_width])
+        self.train_inputs_lemmas = tf.placeholder(tf.int32, shape=[batch_size, seq_width])
         self.train_seq_lengths = tf.placeholder(tf.int32, shape=[batch_size])
         self.train_model_flags = tf.placeholder(tf.bool, shape=[batch_size, seq_width])
         self.train_labels = tf.placeholder(tf.int32, shape=[None, len(synset2id)])
         self.train_indices = tf.placeholder(tf.int32, shape=[None])
         self.val_inputs = tf.constant(val_inputs, tf.int32)
+        self.val_inputs_lemmas = tf.constant(val_input_lemmas, tf.int32)
         self.val_seq_lengths = tf.constant(val_seq_lengths, tf.int32)
         self.val_flags = tf.constant(val_flags, tf.bool)
-        #self.val_labels = tf.constant(val_labels, tf.int32)
         self.place = tf.placeholder(tf.int32, shape=val_labels.shape)
         self.val_labels = tf.Variable(self.place)
         self.val_indices = tf.constant(val_indices, tf.int32)
         self.keep_prob = tf.placeholder(tf.float32)
 
-        reuse = None if is_first else True
+        def embed_inputs (input_words, input_lemmas=None):
 
-        # create parameters for all word sense models
-        #with tf.variable_scope("word-sense-models") as scope:
-        #with tf.variable_scope(tf.get_variable_scope()) as scope:
+            embedded_inputs = tf.nn.embedding_lookup(self.embeddings, input_words)
+            if input_lemmas != None:
+                embedded_inputs_lemmas = tf.nn.embedding_lookup(self.embeddings_lemmas, input_lemmas)
+                embedded_inputs = tf.concat([embedded_inputs, embedded_inputs_lemmas], 2)
 
-        def biRNN_WSD (inputs, seq_lengths, indices, embeddings, weights, biases, labels, is_training, keep_prob):
+            return embedded_inputs
 
+        def biRNN_WSD (embedded_inputs, seq_lengths, indices, weights, biases, labels, is_training, keep_prob):
 
             with tf.variable_scope(tf.get_variable_scope()) as scope:
 
                 # Bidirectional recurrent neural network with LSTM cells
                 initializer = tf.random_uniform_initializer(-1, 1)
-                # with tf.variable_scope('forward'):
                 # TODO: Use state_is_tuple=True
                 # TODO: add dropout
                 fw_cell = tf.contrib.rnn.LSTMCell(n_hidden, initializer=initializer)
                 if is_training:
                     fw_cell = tf.contrib.rnn.DropoutWrapper(fw_cell, input_keep_prob=keep_prob, output_keep_prob=keep_prob)
                 fw_multicell = tf.contrib.rnn.MultiRNNCell([fw_cell] * n_hidden_layers)
-
-                # with tf.variable_scope('backward'):
                 # TODO: Use state_is_tuple=True
                 # TODO: add dropout
                 bw_cell = tf.contrib.rnn.LSTMCell(n_hidden, initializer=initializer)
                 if is_training:
-                    bw_cell = tf.contrib.rnn.DropoutWrapper(bw_cell, input_keep_prob=keep_prob, output_keep_prob=keep_prob,)
+                    bw_cell = tf.contrib.rnn.DropoutWrapper(bw_cell, input_keep_prob=keep_prob, output_keep_prob=keep_prob)
                 bw_multicell = tf.contrib.rnn.MultiRNNCell([bw_cell] * n_hidden_layers)
-
-                embedded_inputs = tf.nn.embedding_lookup(embeddings, inputs)
-                #embedded_inputs = tf.unstack(tf.transpose(embedded_inputs, [1, 0, 2]))
-                #embedded_inputs = tf.transpose(embedded_inputs, [1, 0, 2])
-
                 # Get the blstm cell output
-                # rnn_outputs, _ = tf.nn.bidirectional_dynamic_rnn(fw_cell, bw_cell, embedded_inputs, dtype="float32",
-                #                                                  sequence_length=seq_lengths)
                 rnn_outputs, _ = tf.nn.bidirectional_dynamic_rnn(fw_multicell, bw_multicell, embedded_inputs, dtype="float32",
                                                                  sequence_length=seq_lengths)
-
                 rnn_outputs = tf.concat(rnn_outputs, 2)
-                #rnn_outputs = tf.nn.dropout(rnn_outputs, keep_prob)
-                #rnn_outputs = tf.transpose(rnn_outputs, [1, 0, 2])
-
                 scope.reuse_variables()
-
                 rnn_outputs = tf.reshape(rnn_outputs, [-1, 2*n_hidden])
                 target_outputs = tf.gather(rnn_outputs, indices)
                 logits = tf.matmul(target_outputs, weights) + biases
@@ -96,17 +178,21 @@ class ModelSingleSoftmax:
 
             return cost, logits
 
-        self.cost, self.logits = biRNN_WSD(self.train_inputs, self.train_seq_lengths, self.train_indices,
-                                           self.embeddings, self.weights, self.biases, self.train_labels,
-                                           True, self.keep_prob)
+        # if lemma embeddings are passed, then concatenate them with the word embeddings
+        if vocab_size_lemmas > 0:
+            embedded_inputs = embed_inputs(self.train_inputs, self.train_inputs_lemmas)
+        else:
+            embedded_inputs = embed_inputs(self.train_inputs)
+        self.cost, self.logits = biRNN_WSD(embedded_inputs, self.train_seq_lengths, self.train_indices,
+                                           self.weights, self.biases, self.train_labels, True, self.keep_prob)
         self.train_op = tf.train.GradientDescentOptimizer(learning_rate).minimize(self.cost)
-        #self.train_op = tf.train.RMSPropOptimizer(learning_rate, decay=0.96, momentum=0.1).minimize(self.cost)
-        #self.train_op = tf.train.AdagradOptimizer(learning_rate).minimize(self.cost)
-        #scope.reuse_variables()
+        if vocab_size_lemmas > 0:
+            embedded_inputs = embed_inputs(self.val_inputs, self.val_inputs_lemmas)
+        else:
+            embedded_inputs = embed_inputs(self.val_inputs)
         tf.get_variable_scope().reuse_variables()
-        _, self.val_logits = biRNN_WSD(self.val_inputs, self.val_seq_lengths, self.val_indices,
-                                       self.embeddings, self.weights, self.biases, self.val_labels,
-                                       False, 1.0)
+        _, self.val_logits = biRNN_WSD(embedded_inputs, self.val_seq_lengths, self.val_indices,
+                                       self.weights, self.biases, self.val_labels, False, 1.0)
 
 class ModelVectorSimilarity:
     #TODO make model work with batches (no reason not to use them before the WSD part, I think)
@@ -233,7 +319,7 @@ if __name__ == "__main__":
                         help='Which method is used for the final, WSD step: similarity or fullsoftmax?')
     parser.add_argument('-word_embedding_method', dest='word_embedding_method', required=True, default="tensorflow",
                         help='Which method is used for loading the pretrained embeddings: tensorflow, gensim, glove?')
-    parser.add_argument('-joint_embeddings', dest='joint_embedding', required=False,
+    parser.add_argument('-joint_embedding', dest='joint_embedding', required=False,
                         help='Whether lemmas and synsets are jointly embedded.')
     parser.add_argument('-word_embedding_input', dest='word_embedding_input', required=False, default="wordform",
                         help='Are these embeddings of wordforms or lemmas (options are: wordform, lemma)?')
@@ -249,6 +335,8 @@ if __name__ == "__main__":
                         help='Size of the word embedding vectors.')
     parser.add_argument('-lemma_embeddings_src_path', dest='lemma_embeddings_src_path', required=False,
                         help='The path to the pretrained model with the lemma embeddings.')
+    parser.add_argument('-lemma_embedding_dim', dest='lemma_embedding_dim', required=True,
+                        help='Size of the lemma embedding vectors.')
     parser.add_argument('-sense_embeddings_src_path', dest='sense_embeddings_src_path', required=False, default="None",
                         help='If a path to sense embeddings is passed to the script, label generation is done using them.')
     parser.add_argument('-learning_rate', dest='learning_rate', required=False, default=0.3,
@@ -281,23 +369,26 @@ if __name__ == "__main__":
                         help='Path to where the model should be saved.')
 
 
-    # read the parameters for the model and the data
+    # Read the parameters for the model and the data
     args = parser.parse_args()
     data_source = args.data_source
     mode = args.mode
     wsd_method = args.wsd_method
     joint_embedding = args.joint_embedding
-    sense_embeddings_path = args.sense_embeddings_src_path
     word_embeddings_src_path = args.word_embeddings_src_path
     lemma_embeddings_src_path = args.lemma_embeddings_src_path
+    sense_embeddings_src_path = args.sense_embeddings_src_path
     word_embedding_method = args.word_embedding_method
     word_embedding_dim = int(args.word_embedding_dim)
+    lemma_embedding_dim = int(args.lemma_embedding_dim)
     word_embedding_case = args.word_embedding_case
     word_embedding_input = args.word_embedding_input
     word_embeddings = {}
-    word_embeddings_model = None
+    lemma_embeddings = {}
     src2id = {}
     id2src = {}
+    id2src_lemmas = {}
+    src2id_lemmas = {}
     if word_embedding_method == "gensim":
         word_embeddings_model = KeyedVectors.load_word2vec_format(word_embeddings_src_path, binary=False)
         word_embeddings = word_embeddings_model.syn0
@@ -332,9 +423,23 @@ if __name__ == "__main__":
         src2id["UNK"] = src2id["unk"]
         del src2id["unk"]
     if "UNK" not in src2id:
+        #TODO use a random distribution rather
         unk = np.zeros(word_embedding_dim)
         src2id["UNK"] = len(src2id)
         word_embeddings = np.concatenate((word_embeddings, [unk]))
+
+    if lemma_embeddings_src_path != None:
+        lemma_embeddings_model = KeyedVectors.load_word2vec_format(lemma_embeddings_src_path, binary=False)
+        lemma_embeddings = lemma_embeddings_model.syn0
+        id2src_lemmas = lemma_embeddings_model.index2word
+        for i, word in enumerate(id2src_lemmas):
+            src2id_lemmas[word] = i
+        if "UNK" not in src2id_lemmas:
+            # TODO use a random distribution rather
+            unk = np.zeros(lemma_embedding_dim)
+            src2id_lemmas["UNK"] = len(src2id_lemmas)
+            lemma_embeddings = np.concatenate((lemma_embeddings, [unk]))
+
 
     # Network Parameters
     learning_rate = float(args.learning_rate) # Update rate for the weights
@@ -342,7 +447,7 @@ if __name__ == "__main__":
     batch_size = int(args.batch_size) # Number of sentences passed to the network in one batch
     seq_width = int(args.seq_width) # Max sentence length (longer sentences are cut to this length)
     n_hidden = int(args.n_hidden)
-    n_hidden_layers = int(args.n_hidden_layers)# Number of features/neurons in the hidden layer
+    n_hidden_layers = int(args.n_hidden_layers) # Number of features/neurons in the hidden layer
     embedding_size = word_embedding_dim
     vocab_size = len(src2id)
     lexicon_mode = args.lexicon_mode
@@ -359,8 +464,6 @@ if __name__ == "__main__":
     elif data_source == "uniroma":
         data, lemma2synsets, lemma2id, synset2id, id2synset, id2pos, known_lemmas, synset2freq = \
             data_ops_final.read_data_uniroma(data, wsd_method=wsd_method, f_lex=lexicon)
-    #random.shuffle(data)
-    #train_data = data[:partition]
     test_data = args.test_data
     if test_data == "None":
         partition = int(len(data) * partition_point)
@@ -372,14 +475,14 @@ if __name__ == "__main__":
             val_data = data[partition:]
     else:
         train_data = data
-        if data_source == "default":
+        if data_source == "naf":
             val_data, lemma2synsets, lemma2id, synset2id, id2synset, id2pos = \
             data_ops_final.read_folder_semcor(test_data, lemma2synsets, lemma2id, synset2id, mode="test")
         elif data_source == "uniroma":
             val_data, lemma2synsets, lemma2id, synset2id, id2synset, id2pos, known_lemmas, synset2freq = \
             data_ops_final.read_data_uniroma(test_data, lemma2synsets, lemma2id, synset2id, known_lemmas, synset2freq,
                                              wsd_method=wsd_method, mode="test")
-
+    # TODO: redundant
     synset_train_cases = {}
     for sent in train_data:
         for word in sent:
@@ -392,35 +495,29 @@ if __name__ == "__main__":
                 synset_train_cases[synset] += 1
 
     # get synset embeddings if a path to a model is passed
-    if sense_embeddings_path != "None":
+    if sense_embeddings_src_path != "None":
         label_mappings = {}
         if joint_embedding:
             sense_embeddings_model = word_embeddings_model
         else:
-            sense_embeddings_model = KeyedVectors.load_word2vec_format(sense_embeddings_path, binary=False)
-
+            sense_embeddings_model = KeyedVectors.load_word2vec_format(sense_embeddings_src_path, binary=False)
         sense_embeddings_full = sense_embeddings_model.syn0
         sense_embeddings = np.zeros(shape=(len(synset2id), 300), dtype=float)
-        #sense_embeddings = {}
         id2synset_embeddings = sense_embeddings_model.index2word
-        #synset2id_embeddings = {}
         for i, synset in enumerate(id2synset_embeddings):
             if synset in synset2id:
                 sense_embeddings[synset2id[synset]] = copy(sense_embeddings_full[i])
 
-    val_inputs, val_seq_lengths, val_labels, val_words_to_disambiguate, \
+    val_inputs, val_input_lemmas, val_seq_lengths, val_labels, val_words_to_disambiguate, \
     val_indices, val_lemmas_to_disambiguate, val_synsets_gold = data_ops_final.format_data_dropword\
-                                                    (wsd_method, val_data, src2id, lemma2synsets, synset2id,
+                                                    (wsd_method, val_data, src2id, src2id_lemmas, synset2id,
                                                     seq_width, word_embedding_case, word_embedding_input,
                                                      sense_embeddings, dropword=0)
-    val_data = [val_inputs, val_seq_lengths, val_labels, val_words_to_disambiguate]
+    val_data = [val_inputs, val_input_lemmas, val_seq_lengths, val_labels, val_words_to_disambiguate]
 
     # Function to calculate the accuracy on a batch of results and gold labels
-    def accuracy(logits, labels, lemmas, synsets_gold, statistics=False):
+    def accuracy(logits, labels, lemmas, synsets_gold):
 
-        mistakes = {}
-        successes = {}
-        synsets = set()
         matching_cases = 0
         eval_cases = 0
         for i, logit in enumerate(logits):
@@ -459,40 +556,7 @@ if __name__ == "__main__":
             # if np.argmax(pruned_logit) == np.argmax(labels[i]):
             if max_id in gold_synsets:
                 matching_cases += 1
-                if statistics:
-                    if gold_synset not in successes:
-                        successes[gold_synset] = 1
-                    else:
-                        successes[gold_synset] += 1
-                    synsets.add(gold_synset)
-            elif statistics:
-                if gold_synset not in mistakes:
-                    mistakes[gold_synset] = 1
-                else:
-                    mistakes[gold_synset] += 1
-                synsets.add(gold_synset)
             eval_cases += 1
-
-        if statistics:
-            synsets_err_rate = {}
-            for synset in synsets:
-                n_mistakes = mistakes[synset] if synset in mistakes else 0.0
-                n_successes = successes[synset] if synset in successes else 0.0
-                synsets_err_rate[synset] = n_mistakes / float(n_mistakes + n_successes)
-            synsets_err_rate = collections.OrderedDict(sorted(synsets_err_rate.iteritems(), key=lambda (k,v): (v,k)))
-            f_stats = open(os.path.join(args.save_path, "corpus_statistics.txt"), "w")
-            toWrite = "Synset\tError %\tN of mistakes\tN of correct guesses\tN of test cases\tN of training examples\n"
-            for synset, error in synsets_err_rate.iteritems():
-                n_mistakes = mistakes[synset] if synset in mistakes else 0
-                n_successes = successes[synset] if synset in successes else 0
-                toWrite += synset + "\t" + str(error * 100) + "%" \
-                           + "\t" + str(n_mistakes) \
-                           + "\t" + str(n_successes) \
-                           + "\t" + str(n_mistakes + n_successes) \
-                           + "\t" + (str(synset_train_cases[synset]) if synset in synset_train_cases else "0") + "\n"
-
-            f_stats.write(toWrite)
-            f_stats.close()
 
         return (100.0 * matching_cases) / eval_cases
 
@@ -529,18 +593,27 @@ if __name__ == "__main__":
     def new_batch (offset):
 
         batch = data[offset:(offset+batch_size)]
-        inputs, seq_lengths, labels, words_to_disambiguate, indices, lemmas, synsets_gold = \
-            data_ops_final.format_data_dropword(wsd_method, batch, src2id, lemma2synsets, synset2id, seq_width,
+        inputs, input_lemmas, seq_lengths, labels, words_to_disambiguate, indices, lemmas, synsets_gold = \
+            data_ops_final.format_data_dropword(wsd_method, batch, src2id,src2id_lemmas, lemma2synsets, synset2id, seq_width,
                                              word_embedding_case, word_embedding_input, sense_embeddings, dropword)
-        return inputs, seq_lengths, labels, words_to_disambiguate, indices, lemmas, synsets_gold
+        return inputs, input_lemmas, seq_lengths, labels, words_to_disambiguate, indices, lemmas, synsets_gold
 
     model = None
     if wsd_method == "similarity":
         model = ModelVectorSimilarity(True, synset2id, word_embedding_dim, vocab_size, batch_size, seq_width,
                       n_hidden, val_inputs, val_seq_lengths, val_words_to_disambiguate, val_indices, val_labels)
     elif wsd_method == "fullsoftmax":
-        model = ModelSingleSoftmax(True, synset2id, word_embedding_dim, vocab_size, batch_size, seq_width,
-                      n_hidden, n_hidden_layers, val_inputs, val_seq_lengths, val_words_to_disambiguate, val_indices, val_labels)
+        # model = ModelSingleSoftmax(True, synset2id, word_embedding_dim, vocab_size, batch_size, seq_width,
+        #                            n_hidden, n_hidden_layers, val_inputs, val_seq_lengths,
+        #                            val_words_to_disambiguate, val_indices, val_labels)
+        if len(src2id_lemmas) > 0:
+            link_embeddings = True
+        else:
+            link_embeddings = False
+        model = ModelSingleSoftmax(synset2id, word_embedding_dim, vocab_size, batch_size, seq_width,
+                                   n_hidden, n_hidden_layers, val_inputs, val_input_lemmas, val_seq_lengths,
+                                   val_words_to_disambiguate, val_indices, val_labels, lemma_embedding_dim,
+                                   len(src2id_lemmas), link_embeddings)
     session = tf.Session()
     saver = tf.train.Saver()
     #session.run(tf.global_variables_initializer())

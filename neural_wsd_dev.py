@@ -195,20 +195,17 @@ class ModelSingleSoftmax:
                                        self.weights, self.biases, self.val_labels, False, 1.0)
 
 class ModelVectorSimilarity:
+
     #TODO make model work with batches (no reason not to use them before the WSD part, I think)
-    def __init__(self, is_first, synset2id, word_embedding_dim, vocab_size,
-                 batch_size, seq_width, n_hidden, val_inputs, val_seq_lengths, val_flags, val_indices, val_labels):
+    def __init__(self, word_embedding_dim, vocab_size, batch_size, seq_width, n_hidden, val_inputs, val_seq_lengths,
+                 val_flags, val_indices, val_labels):
         self.emb_placeholder = tf.placeholder(tf.float32, shape=[vocab_size, word_embedding_dim])
         self.embeddings = tf.Variable(self.emb_placeholder)
         self.set_embeddings = tf.assign(self.embeddings, self.emb_placeholder, validate_shape=False)
-        # self.embeddings = tf.get_variable(name="W", shape=[len(src2id), word_embedding_dim], dtype=tf.float32,
-        #                     initializer=tf.constant_initializer(word_embeddings), trainable=True)
         # weights and biases for the transorfmation after the RNN
         #TODO pick an initializer
         self.weights = tf.get_variable(name="softmax-w", shape=[2*n_hidden, word_embedding_dim], dtype=tf.float32)
-        #self.weights = tf.Variable(name="softmax-w", initial_value=tf.random_normal([2*n_hidden, word_embedding_dim]), dtype=tf.float32)
         self.biases = tf.get_variable(name="softmax-b", shape=[word_embedding_dim], dtype=tf.float32)
-        #self.biases = tf.Variable(name="softmax-b", initial_value=tf.random_normal([word_embedding_dim]), dtype=tf.float32)
         self.train_inputs = tf.placeholder(tf.int32, shape=[batch_size, seq_width])
         self.train_seq_lengths = tf.placeholder(tf.int32, shape=[batch_size])
         self.train_model_flags = tf.placeholder(tf.bool, shape=[batch_size, seq_width])
@@ -217,17 +214,12 @@ class ModelVectorSimilarity:
         self.val_inputs = tf.constant(val_inputs, tf.int32)
         self.val_seq_lengths = tf.constant(val_seq_lengths, tf.int32)
         self.val_flags = tf.constant(val_flags, tf.bool)
-        #self.val_labels = tf.constant(val_labels, tf.float32)
         self.place = tf.placeholder(tf.float32, shape=val_labels.shape)
         self.val_labels = tf.Variable(self.place)
         self.val_indices = tf.constant(val_indices, tf.int32)
         self.keep_prob = tf.placeholder(tf.float32)
 
-
-        reuse = None if is_first else True
-
         def biRNN_WSD (inputs, seq_lengths, indices, embeddings, weights, biases, labels, is_training, keep_prob=1.0):
-
 
             with tf.variable_scope(tf.get_variable_scope()) as scope:
 
@@ -240,7 +232,6 @@ class ModelVectorSimilarity:
                 if is_training:
                     fw_cell = tf.contrib.rnn.DropoutWrapper(fw_cell, input_keep_prob=keep_prob, output_keep_prob=keep_prob)
                 fw_multicell = tf.contrib.rnn.MultiRNNCell([fw_cell] * n_hidden_layers)
-
                 # with tf.variable_scope('backward'):
                 # TODO: Use state_is_tuple=True
                 # TODO: add dropout
@@ -248,23 +239,12 @@ class ModelVectorSimilarity:
                 if is_training:
                     bw_cell = tf.contrib.rnn.DropoutWrapper(bw_cell, input_keep_prob=keep_prob, output_keep_prob=keep_prob,)
                 bw_multicell = tf.contrib.rnn.MultiRNNCell([bw_cell] * n_hidden_layers)
-
                 embedded_inputs = tf.nn.embedding_lookup(embeddings, inputs)
-                #embedded_inputs = tf.unstack(tf.transpose(embedded_inputs, [1, 0, 2]))
-                #embedded_inputs = tf.transpose(embedded_inputs, [1, 0, 2])
-
                 # Get the blstm cell output
-                # rnn_outputs, _ = tf.nn.bidirectional_dynamic_rnn(fw_cell, bw_cell, embedded_inputs, dtype="float32",
-                #                                                  sequence_length=seq_lengths)
                 rnn_outputs, _ = tf.nn.bidirectional_dynamic_rnn(fw_multicell, bw_multicell, embedded_inputs, dtype="float32",
                                                                  sequence_length=seq_lengths)
-
                 rnn_outputs = tf.concat(rnn_outputs, 2)
-                #rnn_outputs = tf.nn.dropout(rnn_outputs, keep_prob)
-                #rnn_outputs = tf.transpose(rnn_outputs, [1, 0, 2])
-
                 scope.reuse_variables()
-
                 rnn_outputs = tf.reshape(rnn_outputs, [-1, 2*n_hidden])
                 target_outputs = tf.gather(rnn_outputs, indices)
                 logits = tf.matmul(target_outputs, weights) + biases
@@ -273,11 +253,9 @@ class ModelVectorSimilarity:
 
             return cost, logits
 
-        self.cost, self.logits = biRNN_WSD(self.train_inputs, self.train_seq_lengths, self.train_indices,
-                                           self.embeddings, self.weights, self.biases, self.train_labels,
-                                           True, self.keep_prob)
+        self.cost, self.logits = biRNN_WSD(self.train_inputs, self.train_seq_lengths, self.train_indices, self.embeddings,
+                                           self.weights, self.biases, self.train_labels, True, self.keep_prob)
         self.train_op = tf.train.GradientDescentOptimizer(learning_rate).minimize(self.cost)
-        #scope.reuse_variables()
         tf.get_variable_scope().reuse_variables()
         _, self.val_logits = biRNN_WSD(self.val_inputs, self.val_seq_lengths, self.val_indices,
                                        self.embeddings, self.weights, self.biases, self.val_labels, False)
@@ -287,11 +265,13 @@ def run_epoch(session, model, data, keep_prob, mode):
     feed_dict = {}
     if mode != "application":
         inputs = data[0]
-        seq_lengths = data[1]
-        labels = data[2]
-        words_to_disambiguate = data[3]
-        indices = data[4]
+        input_lemmas = data[1]
+        seq_lengths = data[2]
+        labels = data[3]
+        words_to_disambiguate = data[4]
+        indices = data[5]
         feed_dict = { model.train_inputs : inputs,
+                      model.train_inputs_lemmas : input_lemmas,
                       model.train_seq_lengths : seq_lengths,
                       model.train_model_flags : words_to_disambiguate,
                       model.train_indices : indices,
@@ -513,19 +493,15 @@ if __name__ == "__main__":
                                                     (wsd_method, val_data, src2id, src2id_lemmas, synset2id,
                                                     seq_width, word_embedding_case, word_embedding_input,
                                                      sense_embeddings, dropword=0)
-    val_data = [val_inputs, val_input_lemmas, val_seq_lengths, val_labels, val_words_to_disambiguate]
 
     # Function to calculate the accuracy on a batch of results and gold labels
-    def accuracy(logits, labels, lemmas, synsets_gold):
+    def accuracy(logits, lemmas, synsets_gold):
 
         matching_cases = 0
         eval_cases = 0
         for i, logit in enumerate(logits):
-            #pruned_logit = np.zeros([len(synset2id)])
             max = -10000
             max_id = -1
-            #gold_synsets = [src2id[syn] for syn in synsets_gold[i]]
-            #gold_pos = id2pos[gold_synsets[0]]
             gold_synsets = synsets_gold[i]
             gold_pos = gold_synsets[0].split("-")[1]
             lemma = lemmas[i]
@@ -541,26 +517,21 @@ if __name__ == "__main__":
                 for synset in lemma2synsets[lemma]:
                     id = synset2id[synset]
                     # make sure we only evaluate on synsets of the correct POS category
-                    # if id2pos[id] != gold_pos:
-                    #     continue
                     if synset.split("-")[1] != gold_pos:
                         continue
-                    #pruned_logit[id] = logit[id]
                     if logit[id] > max:
                         max = logit[id]
                         max_id = synset
             #make sure there is at least one synset with a positive score
             # if max < 0:
             #     pruned_logit[max_id] = max * -1
-            gold_synset = id2synset[np.argmax(labels[i])]
-            # if np.argmax(pruned_logit) == np.argmax(labels[i]):
             if max_id in gold_synsets:
                 matching_cases += 1
             eval_cases += 1
 
         return (100.0 * matching_cases) / eval_cases
 
-    def accuracy_cosine_distance (logits, labels, lemmas, synsets_gold):
+    def accuracy_cosine_distance (logits, lemmas, synsets_gold):
 
         matching_cases = 0
         eval_cases = 0
@@ -574,7 +545,6 @@ if __name__ == "__main__":
                 if synset.split("-")[1] != gold_pos:
                     continue
                 syn_id = synset2id[synset]
-                #cos_similarity = 1 - spatial.distance.cosine(logit, sense_embeddings[syn_id])
                 if syn_id >= len(sense_embeddings):
                     if max_similarity == -10000:
                         best_fit = synset
@@ -594,7 +564,7 @@ if __name__ == "__main__":
 
         batch = data[offset:(offset+batch_size)]
         inputs, input_lemmas, seq_lengths, labels, words_to_disambiguate, indices, lemmas, synsets_gold = \
-            data_ops_final.format_data_dropword(wsd_method, batch, src2id,src2id_lemmas, lemma2synsets, synset2id, seq_width,
+            data_ops_final.format_data_dropword(wsd_method, batch, src2id, src2id_lemmas, lemma2synsets, synset2id, seq_width,
                                              word_embedding_case, word_embedding_input, sense_embeddings, dropword)
         return inputs, input_lemmas, seq_lengths, labels, words_to_disambiguate, indices, lemmas, synsets_gold
 
@@ -603,17 +573,9 @@ if __name__ == "__main__":
         model = ModelVectorSimilarity(True, synset2id, word_embedding_dim, vocab_size, batch_size, seq_width,
                       n_hidden, val_inputs, val_seq_lengths, val_words_to_disambiguate, val_indices, val_labels)
     elif wsd_method == "fullsoftmax":
-        # model = ModelSingleSoftmax(True, synset2id, word_embedding_dim, vocab_size, batch_size, seq_width,
-        #                            n_hidden, n_hidden_layers, val_inputs, val_seq_lengths,
-        #                            val_words_to_disambiguate, val_indices, val_labels)
-        if len(src2id_lemmas) > 0:
-            link_embeddings = True
-        else:
-            link_embeddings = False
-        model = ModelSingleSoftmax(synset2id, word_embedding_dim, vocab_size, batch_size, seq_width,
-                                   n_hidden, n_hidden_layers, val_inputs, val_input_lemmas, val_seq_lengths,
-                                   val_words_to_disambiguate, val_indices, val_labels, lemma_embedding_dim,
-                                   len(src2id_lemmas), link_embeddings)
+        model = ModelSingleSoftmax(synset2id, word_embedding_dim, vocab_size, batch_size, seq_width, n_hidden,
+                                   n_hidden_layers, val_inputs, val_input_lemmas, val_seq_lengths, val_words_to_disambiguate,
+                                   val_indices, val_labels, lemma_embedding_dim, len(src2id_lemmas))
     session = tf.Session()
     saver = tf.train.Saver()
     #session.run(tf.global_variables_initializer())
@@ -648,41 +610,36 @@ if __name__ == "__main__":
     batch_loss = 0
     for step in range(training_iters):
         offset = (step * batch_size) % (len(data) - batch_size)
-        inputs, seq_lengths, labels, words_to_disambiguate, indices, lemmas_to_disambiguate, synsets_gold = new_batch(offset)
+        inputs, input_lemmas, seq_lengths, labels, words_to_disambiguate, indices, lemmas_to_disambiguate, synsets_gold = new_batch(offset)
         if (len(labels) == 0):
             continue
-        input_data = [inputs, seq_lengths, labels, words_to_disambiguate, indices]
+        input_data = [inputs, input_lemmas, seq_lengths, labels, words_to_disambiguate, indices]
 
-        if (step % 50 == 0):
+        if (step % 100 == 0):
             fetches = run_epoch(session, model, input_data, keep_prob, mode="val")
+            if (fetches[1] is not None):
+                batch_loss += fetches[1]
+            print 'EPOCH: %d' % step
+            print 'Averaged minibatch loss at step ' + str(step) + ': ' + str(batch_loss/100.0)
             if wsd_method == "similarity":
                 print 'Minibatch accuracy: ' + str(accuracy_cosine_distance(fetches[2], labels, lemmas_to_disambiguate, synsets_gold))
                 print 'Validation accuracy: ' + str(accuracy_cosine_distance(fetches[3], val_labels, val_lemmas_to_disambiguate, val_synsets_gold))
             elif wsd_method == "fullsoftmax":
                 print 'Minibatch accuracy: ' + str(accuracy(fetches[2], labels, lemmas_to_disambiguate, synsets_gold))
                 print 'Validation accuracy: ' + str(accuracy(fetches[3], val_labels, val_lemmas_to_disambiguate, val_synsets_gold))
-            # if step % 10000 == 0:
-            #     accuracy(fetches[3], val_labels, val_lemmas_to_disambiguate, val_synsets_gold, statistics=True)
+            batch_loss = 0.0
         else:
             fetches = run_epoch(session, model, input_data, keep_prob, mode="train")
+            if (fetches[1] is not None):
+                batch_loss += fetches[1]
 
-        if (fetches[1] is not None):
-            batch_loss += fetches[1]
-
-        if (step % 100) == 0:
-            print 'EPOCH: %d' % step
-            print 'Averaged minibatch loss at step ' + str(step) + ': ' + str(batch_loss/100.0)
-            batch_loss = 0.0
-
-        # if (args.save_path != "None" and step % 25000 == 0 and step != 0):
-        #     saver.save(session, os.path.join(args.save_path, "model.ckpt"), global_step=step)
-        #     # with open(os.path.join(args.save_path, 'model-instance.pkl'), 'wb') as output:
-        #     #     pickle.dump(model, output, pickle.HIGHEST_PROTOCOL)
-        #     with open(os.path.join(args.save_path, 'lemma2synsets.pkl'), 'wb') as output:
-        #         pickle.dump(lemma2synsets, output, pickle.HIGHEST_PROTOCOL)
-        #     with open(os.path.join(args.save_path, 'lemma2id.pkl'), 'wb') as output:
-        #         pickle.dump(lemma2id, output, pickle.HIGHEST_PROTOCOL)
-        #     with open(os.path.join(args.save_path, 'synset2id.pkl'), 'wb') as output:
-        #         pickle.dump(synset2id, output, pickle.HIGHEST_PROTOCOL)
-        #     with open(os.path.join(args.save_path, 'id2synset.pkl'), 'wb') as output:
-        #         pickle.dump(id2synset, output, pickle.HIGHEST_PROTOCOL)
+        if (args.save_path != "None" and step % 25000 == 0 and step != 0):
+            saver.save(session, os.path.join(args.save_path, "model.ckpt"), global_step=step)
+            with open(os.path.join(args.save_path, 'lemma2synsets.pkl'), 'wb') as output:
+                pickle.dump(lemma2synsets, output, pickle.HIGHEST_PROTOCOL)
+            with open(os.path.join(args.save_path, 'lemma2id.pkl'), 'wb') as output:
+                pickle.dump(lemma2id, output, pickle.HIGHEST_PROTOCOL)
+            with open(os.path.join(args.save_path, 'synset2id.pkl'), 'wb') as output:
+                pickle.dump(synset2id, output, pickle.HIGHEST_PROTOCOL)
+            with open(os.path.join(args.save_path, 'id2synset.pkl'), 'wb') as output:
+                pickle.dump(id2synset, output, pickle.HIGHEST_PROTOCOL)

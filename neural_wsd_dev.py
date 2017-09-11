@@ -202,10 +202,9 @@ class ModelVectorSimilarity:
         self.emb_placeholder = tf.placeholder(tf.float32, shape=[vocab_size, word_embedding_dim])
         self.embeddings = tf.Variable(self.emb_placeholder)
         self.set_embeddings = tf.assign(self.embeddings, self.emb_placeholder, validate_shape=False)
-        # weights and biases for the transorfmation after the RNN
         #TODO pick an initializer
-        self.weights = tf.get_variable(name="softmax-w", shape=[2*n_hidden, word_embedding_dim], dtype=tf.float32)
-        self.biases = tf.get_variable(name="softmax-b", shape=[word_embedding_dim], dtype=tf.float32)
+        self.weights = tf.get_variable(name="w", shape=[2*n_hidden, word_embedding_dim], dtype=tf.float32)
+        self.biases = tf.get_variable(name="b", shape=[word_embedding_dim], dtype=tf.float32)
         self.train_inputs = tf.placeholder(tf.int32, shape=[batch_size, seq_width])
         self.train_seq_lengths = tf.placeholder(tf.int32, shape=[batch_size])
         self.train_model_flags = tf.placeholder(tf.bool, shape=[batch_size, seq_width])
@@ -225,14 +224,12 @@ class ModelVectorSimilarity:
 
                 # Bidirectional recurrent neural network with LSTM cells
                 initializer = tf.random_uniform_initializer(-1, 1)
-                # with tf.variable_scope('forward'):
                 # TODO: Use state_is_tuple=True
                 # TODO: add dropout
                 fw_cell = tf.contrib.rnn.LSTMCell(n_hidden, initializer=initializer)
                 if is_training:
                     fw_cell = tf.contrib.rnn.DropoutWrapper(fw_cell, input_keep_prob=keep_prob, output_keep_prob=keep_prob)
                 fw_multicell = tf.contrib.rnn.MultiRNNCell([fw_cell] * n_hidden_layers)
-                # with tf.variable_scope('backward'):
                 # TODO: Use state_is_tuple=True
                 # TODO: add dropout
                 bw_cell = tf.contrib.rnn.LSTMCell(n_hidden, initializer=initializer)
@@ -247,11 +244,11 @@ class ModelVectorSimilarity:
                 scope.reuse_variables()
                 rnn_outputs = tf.reshape(rnn_outputs, [-1, 2*n_hidden])
                 target_outputs = tf.gather(rnn_outputs, indices)
-                logits = tf.matmul(target_outputs, weights) + biases
-                losses = (labels - logits) ** 2
+                output_emb = tf.matmul(target_outputs, weights) + biases
+                losses = (labels - output_emb) ** 2
                 cost = tf.reduce_mean(losses)
 
-            return cost, logits
+            return cost, output_emb
 
         self.cost, self.logits = biRNN_WSD(self.train_inputs, self.train_seq_lengths, self.train_indices, self.embeddings,
                                            self.weights, self.biases, self.train_labels, True, self.keep_prob)
@@ -306,7 +303,7 @@ if __name__ == "__main__":
     parser.add_argument('-word_embedding_case', dest='word_embedding_case', required=False, default="lowercase",
                         help='Are the word embeddings trained on lowercased or mixedcased text? Options: lowercase, mixedcase')
     parser.add_argument('-embeddings_load_script', dest='embeddings_load_script', required=False, default="None",
-                        help='Path to the Python file that creates the word2vec object.')
+                        help='Path to the Python file that creates the word2vec object (tensorflow model).')
     parser.add_argument('-word_embeddings_src_path', dest='word_embeddings_src_path', required=True,
                         help='The path to the pretrained model with the word embeddings.')
     parser.add_argument('-word_embeddings_src_train_data', dest='word_embeddings_src_train_data', required=False,
@@ -315,7 +312,7 @@ if __name__ == "__main__":
                         help='Size of the word embedding vectors.')
     parser.add_argument('-lemma_embeddings_src_path', dest='lemma_embeddings_src_path', required=False,
                         help='The path to the pretrained model with the lemma embeddings.')
-    parser.add_argument('-lemma_embedding_dim', dest='lemma_embedding_dim', required=True,
+    parser.add_argument('-lemma_embedding_dim', dest='lemma_embedding_dim', required=False,
                         help='Size of the lemma embedding vectors.')
     parser.add_argument('-sense_embeddings_src_path', dest='sense_embeddings_src_path', required=False, default="None",
                         help='If a path to sense embeddings is passed to the script, label generation is done using them.')
@@ -462,21 +459,8 @@ if __name__ == "__main__":
             val_data, lemma2synsets, lemma2id, synset2id, id2synset, id2pos, known_lemmas, synset2freq = \
             data_ops_final.read_data_uniroma(test_data, lemma2synsets, lemma2id, synset2id, known_lemmas, synset2freq,
                                              wsd_method=wsd_method, mode="test")
-    # TODO: redundant
-    synset_train_cases = {}
-    for sent in train_data:
-        for word in sent:
-            synset = word[2]
-            if synset == "unspecified":
-                continue
-            if synset not in synset_train_cases:
-                synset_train_cases[synset] = 1
-            else:
-                synset_train_cases[synset] += 1
-
     # get synset embeddings if a path to a model is passed
     if sense_embeddings_src_path != "None":
-        label_mappings = {}
         if joint_embedding:
             sense_embeddings_model = word_embeddings_model
         else:
@@ -580,7 +564,8 @@ if __name__ == "__main__":
     saver = tf.train.Saver()
     #session.run(tf.global_variables_initializer())
     if mode == "application":
-        saver.restore(session, os.path.join(args.save_path, "model.ckpt-25000"))
+        saver.restore(session, os.path.join(args.save_path, "model.ckpt"))
+        #TODO: finish this module
         # fetches = run_epoch(session, model, val_data, mode="application")
         # #lemma2synsets =
         # for i in range(len(fetches)):
@@ -608,6 +593,11 @@ if __name__ == "__main__":
     #session.run(model.set_embeddings, feed_dict={model.emb_placeholder: word_embeddings})
 
     batch_loss = 0
+    best_accuracy = 0.0
+    results = ""
+    results += args + '\n\n'
+    if not os.path.exists(args.save_path):
+        os.makedirs(args.save_path)
     for step in range(training_iters):
         offset = (step * batch_size) % (len(data) - batch_size)
         inputs, input_lemmas, seq_lengths, labels, words_to_disambiguate, indices, lemmas_to_disambiguate, synsets_gold = new_batch(offset)
@@ -615,31 +605,41 @@ if __name__ == "__main__":
             continue
         input_data = [inputs, input_lemmas, seq_lengths, labels, words_to_disambiguate, indices]
 
+        val_accuracy = 0.0
         if (step % 100 == 0):
             fetches = run_epoch(session, model, input_data, keep_prob, mode="val")
             if (fetches[1] is not None):
                 batch_loss += fetches[1]
-            print 'EPOCH: %d' % step
-            print 'Averaged minibatch loss at step ' + str(step) + ': ' + str(batch_loss/100.0)
+            results += 'EPOCH: %d' % step + '\n'
+            results += 'Averaged minibatch loss at step ' + str(step) + ': ' + str(batch_loss/100.0) + '\n'
             if wsd_method == "similarity":
-                print 'Minibatch accuracy: ' + str(accuracy_cosine_distance(fetches[2], labels, lemmas_to_disambiguate, synsets_gold))
-                print 'Validation accuracy: ' + str(accuracy_cosine_distance(fetches[3], val_labels, val_lemmas_to_disambiguate, val_synsets_gold))
+                val_accuracy = str(accuracy_cosine_distance(fetches[3], val_labels, val_lemmas_to_disambiguate, val_synsets_gold))
+                results += 'Minibatch accuracy: ' + str(accuracy_cosine_distance(fetches[2], labels, lemmas_to_disambiguate, synsets_gold)) + '\n'
+                results += 'Validation accuracy: ' + val_accuracy + '\n'
             elif wsd_method == "fullsoftmax":
-                print 'Minibatch accuracy: ' + str(accuracy(fetches[2], labels, lemmas_to_disambiguate, synsets_gold))
-                print 'Validation accuracy: ' + str(accuracy(fetches[3], val_labels, val_lemmas_to_disambiguate, val_synsets_gold))
+                val_accuracy = str(accuracy(fetches[3], val_labels, val_lemmas_to_disambiguate, val_synsets_gold))
+                results += 'Minibatch accuracy: ' + str(accuracy(fetches[2], labels, lemmas_to_disambiguate, synsets_gold)) + '\n'
+                results += 'Validation accuracy: ' + val_accuracy + '\n'
             batch_loss = 0.0
         else:
             fetches = run_epoch(session, model, input_data, keep_prob, mode="train")
             if (fetches[1] is not None):
                 batch_loss += fetches[1]
 
-        if (args.save_path != "None" and step % 25000 == 0 and step != 0):
+        if val_accuracy > best_accuracy:
+            best_accuracy = val_accuracy
+
+        if (args.save_path != "None" and step == 25000 or step > 25000 and val_accuracy == best_accuracy):
             saver.save(session, os.path.join(args.save_path, "model.ckpt"), global_step=step)
-            with open(os.path.join(args.save_path, 'lemma2synsets.pkl'), 'wb') as output:
-                pickle.dump(lemma2synsets, output, pickle.HIGHEST_PROTOCOL)
-            with open(os.path.join(args.save_path, 'lemma2id.pkl'), 'wb') as output:
-                pickle.dump(lemma2id, output, pickle.HIGHEST_PROTOCOL)
-            with open(os.path.join(args.save_path, 'synset2id.pkl'), 'wb') as output:
-                pickle.dump(synset2id, output, pickle.HIGHEST_PROTOCOL)
-            with open(os.path.join(args.save_path, 'id2synset.pkl'), 'wb') as output:
-                pickle.dump(id2synset, output, pickle.HIGHEST_PROTOCOL)
+            if (step == 25000):
+                with open(os.path.join(args.save_path, 'lemma2synsets.pkl'), 'wb') as output:
+                    pickle.dump(lemma2synsets, output, pickle.HIGHEST_PROTOCOL)
+                with open(os.path.join(args.save_path, 'lemma2id.pkl'), 'wb') as output:
+                    pickle.dump(lemma2id, output, pickle.HIGHEST_PROTOCOL)
+                with open(os.path.join(args.save_path, 'synset2id.pkl'), 'wb') as output:
+                    pickle.dump(synset2id, output, pickle.HIGHEST_PROTOCOL)
+                with open(os.path.join(args.save_path, 'id2synset.pkl'), 'wb') as output:
+                    pickle.dump(id2synset, output, pickle.HIGHEST_PROTOCOL)
+
+    results += '\n\n\n' + 'Best result is: ' + best_accuracy
+    f_out = open(os.path.join(args.save_path, 'results.txt'))

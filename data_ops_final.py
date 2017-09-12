@@ -195,8 +195,8 @@ def get_sensekey2synset ():
         pickle.dump(sensekey2synset, output, pickle.HIGHEST_PROTOCOL)
     return sensekey2synset
 
-def read_data_uniroma (path, sensekey2synset, lemma2synsets={}, lemma2id={}, synset2id={}, known_lemmas=set(),
-                       synset2freq = {}, wsd_method="full_dictionary", mode="train", f_lex=None):
+def read_data_uniroma (path, sensekey2synset, lemma2synsets={}, lemma2id={}, synset2id={}, id2synset={}, id2pos={},
+                       known_lemmas=set(), synset2freq = {}, wsd_method="full_dictionary", mode="train", f_lex=None):
 
     data = []
     if mode == "train":
@@ -275,8 +275,6 @@ def read_data_uniroma (path, sensekey2synset, lemma2synsets={}, lemma2id={}, syn
                 if synset not in synset2id:
                     synset2id[synset] = index_s
                     index_s += 1
-        id2synset = {}
-        id2pos = {}
         for synset, id in synset2id.iteritems():
             id2synset[id] = synset
             pos = synset.split("-")[1]
@@ -447,7 +445,7 @@ def loadGloveModel(gloveFile):
         embedding = [float(val) for val in splitLine[1:]]
         model[index] = embedding
         src2id[word] = index
-        id2src[id] = word
+        id2src[index] = word
         index += 1
     print "Done.",len(model)," words loaded!"
     return model, src2id, id2src

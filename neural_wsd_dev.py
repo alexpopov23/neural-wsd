@@ -117,9 +117,10 @@ class ModelSingleSoftmax:
         self.emb_placeholder = tf.placeholder(tf.float32, shape=[vocab_size, word_embedding_dim])
         self.embeddings = tf.Variable(self.emb_placeholder)
         self.set_embeddings = tf.assign(self.embeddings, self.emb_placeholder, validate_shape=False)
-        self.emb_placeholder_lemmas = tf.placeholder(tf.float32, shape=[vocab_size_lemmas, lemma_embedding_dim])
-        self.embeddings_lemmas = tf.Variable(self.emb_placeholder_lemmas)
-        self.set_embeddings_lemmas = tf.assign(self.embeddings_lemmas, self.emb_placeholder_lemmas, validate_shape=False)
+        if vocab_size_lemmas > 0:
+            self.emb_placeholder_lemmas = tf.placeholder(tf.float32, shape=[vocab_size_lemmas, lemma_embedding_dim])
+            self.embeddings_lemmas = tf.Variable(self.emb_placeholder_lemmas)
+            self.set_embeddings_lemmas = tf.assign(self.embeddings_lemmas, self.emb_placeholder_lemmas, validate_shape=False)
         #TODO pick an initializer
         self.weights = tf.get_variable(name="softmax-w", shape=[2*n_hidden, len(synset2id)], dtype=tf.float32)
         self.biases = tf.get_variable(name="softmax-b", shape=[len(synset2id)], dtype=tf.float32)
@@ -130,7 +131,8 @@ class ModelSingleSoftmax:
         self.train_labels = tf.placeholder(tf.int32, shape=[None, len(synset2id)])
         self.train_indices = tf.placeholder(tf.int32, shape=[None])
         self.val_inputs = tf.constant(val_inputs, tf.int32)
-        self.val_inputs_lemmas = tf.constant(val_input_lemmas, tf.int32)
+        if vocab_size_lemmas > 0:
+            self.val_inputs_lemmas = tf.constant(val_input_lemmas, tf.int32)
         self.val_seq_lengths = tf.constant(val_seq_lengths, tf.int32)
         self.val_flags = tf.constant(val_flags, tf.bool)
         self.place = tf.placeholder(tf.int32, shape=val_labels.shape)
@@ -312,7 +314,7 @@ if __name__ == "__main__":
                         help='Size of the word embedding vectors.')
     parser.add_argument('-lemma_embeddings_src_path', dest='lemma_embeddings_src_path', required=False,
                         help='The path to the pretrained model with the lemma embeddings.')
-    parser.add_argument('-lemma_embedding_dim', dest='lemma_embedding_dim', required=False,
+    parser.add_argument('-lemma_embedding_dim', dest='lemma_embedding_dim', required=False, default="0",
                         help='Size of the lemma embedding vectors.')
     parser.add_argument('-sense_embeddings_src_path', dest='sense_embeddings_src_path', required=False, default="None",
                         help='If a path to sense embeddings is passed to the script, label generation is done using them.')
@@ -459,8 +461,8 @@ if __name__ == "__main__":
             data_ops_final.read_folder_semcor(test_data, lemma2synsets, lemma2id, synset2id, mode="test")
         elif data_source == "uniroma":
             val_data, lemma2synsets, lemma2id, synset2id, id2synset, id2pos, known_lemmas, synset2freq = \
-            data_ops_final.read_data_uniroma(test_data, sensekey2synset, lemma2synsets, lemma2id, synset2id, known_lemmas, synset2freq,
-                                             wsd_method=wsd_method, mode="test")
+            data_ops_final.read_data_uniroma(test_data, sensekey2synset, lemma2synsets, lemma2id, synset2id, id2synset,
+                                             id2pos, known_lemmas, synset2freq, wsd_method=wsd_method, mode="test")
     # get synset embeddings if a path to a model is passed
     if sense_embeddings_src_path != "None":
         if joint_embedding:
@@ -473,6 +475,8 @@ if __name__ == "__main__":
         for i, synset in enumerate(id2synset_embeddings):
             if synset in synset2id:
                 sense_embeddings[synset2id[synset]] = copy(sense_embeddings_full[i])
+    else:
+        sense_embeddings = None
 
     val_inputs, val_input_lemmas, val_seq_lengths, val_labels, val_words_to_disambiguate, \
     val_indices, val_lemmas_to_disambiguate, val_synsets_gold = data_ops_final.format_data\
@@ -550,7 +554,7 @@ if __name__ == "__main__":
 
         batch = data[offset:(offset+batch_size)]
         inputs, input_lemmas, seq_lengths, labels, words_to_disambiguate, indices, lemmas, synsets_gold = \
-            data_ops_final.format_data(wsd_method, batch, src2id, src2id_lemmas, lemma2synsets, synset2id, seq_width,
+            data_ops_final.format_data(wsd_method, batch, src2id, src2id_lemmas, synset2id, seq_width,
                                              word_embedding_case, word_embedding_input, sense_embeddings, dropword)
         return inputs, input_lemmas, seq_lengths, labels, words_to_disambiguate, indices, lemmas, synsets_gold
 
@@ -597,7 +601,7 @@ if __name__ == "__main__":
     batch_loss = 0
     best_accuracy = 0.0
     results = ""
-    results += args + '\n\n'
+    results += str(args) + '\n\n'
     if not os.path.exists(args.save_path):
         os.makedirs(args.save_path)
     for step in range(training_iters):

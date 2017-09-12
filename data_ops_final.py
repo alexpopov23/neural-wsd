@@ -14,78 +14,6 @@ from nltk.corpus import wordnet
 
 npa = np.array
 
-# def build_sense_ids(data):
-#     words = set()
-#     word_to_senses = {}
-#     for elem in data:
-#         target_word = elem['target_word']
-#         target_sense = elem['target_sense']
-#
-#         if target_word not in words:
-#             words.add(target_word)
-#             word_to_senses.update({target_word: [target_sense]})
-#
-#         else:
-#             if target_sense not in word_to_senses[target_word]:
-#                 word_to_senses[target_word].append(target_sense)
-#
-#     words = list(words)
-#     target_word_to_id = dict(zip(words, range(len(words))))
-#     target_sense_to_id = [dict(zip(word_to_senses[word], range(len(word_to_senses[word])))) for word in words]
-#
-#     n_senses_from_word_id = dict([(target_word_to_id[word], len(word_to_senses[word])) for word in words])
-#     return target_word_to_id, target_sense_to_id, len(words), n_senses_from_word_id
-
-# # read a single NAF-style Semcor file
-# def read_file_semcor_0 (path):
-#     lemmas = set()
-#     tree = ET.parse(path)
-#     doc = tree.getroot()
-#     text = doc.find("text")
-#     wfs = text.findall("wf")
-#     corpus = {}
-#     for wf in wfs:
-#         wf_id = int(wf.get("id")[1:])
-#         wf_text = wf.text
-#         wf_sent = wf.get("sent")
-#         corpus[wf_id] = [wf_sent, wf_text]
-#     terms = doc.find("terms")
-#     for term in terms.findall("term"):
-#         lemma = term.get("lemma")
-#         id = int(term.find("span").find("target").get("id")[1:])
-#         synset = "unspecified"
-#         extRefs = term.find("externalReferences")
-#         if extRefs != None:
-#             for extRef in extRefs.findall("externalRef"):
-#                 resource = extRef.get("resource")
-#                 if resource == "WordNet-eng30":
-#                     reftype = extRef.get("reftype")
-#                     if reftype == "synset":
-#                         synset = extRef.get("reference")[6:]
-#                         if lemma not in lemmas:
-#                             lemmas.add(lemma)
-#         corpus[id].extend([lemma, synset])
-#     corpus = collections.OrderedDict(sorted(corpus.items()))
-#
-#     sentences = []
-#     current_sentence = []
-#     sent_counter = 1
-#     for word in corpus.iterkeys():
-#         if len(corpus[word]) == 2:
-#             lemma = corpus[word][1]
-#             corpus[word].extend([lemma, "unspecified"])
-#         if int(corpus[word][0]) == sent_counter:
-#             current_sentence.append(corpus[word][1:])
-#         else:
-#             if sent_counter != 0:
-#                 sentences.append(current_sentence)
-#             sent_counter += 1
-#             current_sentence = []
-#             current_sentence.append(corpus[word][1:])
-#     sentences.append(current_sentence)
-#
-#     return sentences, lemmas
-
 # read a single NAF-style Semcor file
 def read_file_semcor (path, mode="full_dictionary"):
     if mode == "full_dictionary":
@@ -267,8 +195,8 @@ def get_sensekey2synset ():
         pickle.dump(sensekey2synset, output, pickle.HIGHEST_PROTOCOL)
     return sensekey2synset
 
-def read_data_uniroma (path, lemma2synsets={}, lemma2id={}, synset2id={}, known_lemmas=set(), synset2freq = {},
-                       wsd_method="full_dictionary", mode="train", f_lex=None):
+def read_data_uniroma (path, sensekey2synset, lemma2synsets={}, lemma2id={}, synset2id={}, known_lemmas=set(),
+                       synset2freq = {}, wsd_method="full_dictionary", mode="train", f_lex=None):
 
     data = []
     if mode == "train":
@@ -290,7 +218,7 @@ def read_data_uniroma (path, lemma2synsets={}, lemma2id={}, synset2id={}, known_
                 else:
                     lemma2synsets[lemma].append(synset)
     #sensekey2synset = get_sensekey2synset()
-    sensekey2synset = pickle.load(open("/home/lenovo/dev/neural-wsd/data/Unified-WSD-framework/sensekey2synset.pkl", "rb"))
+    #sensekey2synset = pickle.load(open("/home/lenovo/dev/neural-wsd/data/Unified-WSD-framework/sensekey2synset.pkl", "rb"))
     path_data = ""
     path_keys = ""
     for f in os.listdir(path):
@@ -347,12 +275,12 @@ def read_data_uniroma (path, lemma2synsets={}, lemma2id={}, synset2id={}, known_
                 if synset not in synset2id:
                     synset2id[synset] = index_s
                     index_s += 1
-    id2synset = {}
-    id2pos = {}
-    for synset, id in synset2id.iteritems():
-        id2synset[id] = synset
-        pos = synset.split("-")[1]
-        id2pos[id] = pos
+        id2synset = {}
+        id2pos = {}
+        for synset, id in synset2id.iteritems():
+            id2synset[id] = synset
+            pos = synset.split("-")[1]
+            id2pos[id] = pos
     words_to_disambiguate = []
     count_ambig = 0
     count_missing1 = 0
@@ -389,203 +317,7 @@ def read_data_uniroma (path, lemma2synsets={}, lemma2id={}, synset2id={}, known_
     return data, lemma2synsets, lemma2id, synset2id, id2synset, id2pos, known_lemmas, synset2freq
 
 
-# def read_data_uniroma_backup (path, lemma2synsets={}, lemma2id={}, synset2id={}, known_lemmas=set(),
-#                        lexicon_mode="full_dictionary", mode="train", f_lex=None):
-#
-#     data = []
-#     #known_lemmas = set()
-#     #sensekey2synset = get_sensekey2synset()
-#     sensekey2synset = pickle.load(open("/home/alexander/dev/projects/BAN/neural-wsd/data/UnivRomaData/sensekey2synset.pkl", "rb"))
-#     path_data = ""
-#     path_keys = ""
-#     for f in os.listdir(path):
-#         if f.endswith(".xml"):
-#             path_data = f
-#         elif f.endswith(".txt"):
-#             path_keys = f
-#     codes2keys = {}
-#     f_codes2keys = open(os.path.join(path, path_keys), "r")
-#     for line in f_codes2keys.readlines():
-#         entries = line.strip().split()
-#         code = entries[0]
-#         keys = entries[1:]
-#         codes2keys[code] = keys
-#     tree = ET.parse(os.path.join(path, path_data))
-#     doc = tree.getroot()
-#     texts = doc.findall("text")
-#     count_inst = 0
-#     for text in texts:
-#         sentences = text.findall("sentence")
-#         for sentence in sentences:
-#             current_sentence = []
-#             elements = sentence.findall(".//")
-#             for element in elements:
-#                 wordform = element.text
-#                 lemma = element.get("lemma")
-#                 if mode == "train":
-#                     known_lemmas.add(lemma)
-#                 pos = element.get("pos")
-#                 if element.tag == "instance":
-#                     count_inst += 1
-#                     synsets = [sensekey2synset[key] for key in codes2keys[element.get("id")]]
-#                     # TODO: fix in the generation of the dictionary, this here is a needless check
-#                     for synset in synsets:
-#                         if synset.endswith("-s"):
-#                             synsets[synsets.index(synset)] = synset.replace("-s", "-a")
-#                 else:
-#                     synsets = ["unspecified"]
-#                 current_sentence.append([wordform, lemma, pos, synsets])
-#             data.append(current_sentence)
-#     if mode == "train" and lexicon_mode == "full_dictionary":
-#         # get lexicon from the WordNet files
-#         lexicon = open(f_lex, "r")
-#         lines = lexicon.readlines()
-#         for line in lines:
-#             fields = line.split(" ")
-#             lemma, synsets = fields[0], fields[1:]
-#             # if lemma not in lemmas:
-#             #     continue
-#             for entry in synsets:
-#                 synset = entry[:10].strip()
-#                 if lemma not in lemma2synsets:
-#                     lemma2synsets[lemma] = [synset]
-#                 else:
-#                     lemma2synsets[lemma].append(synset)
-#     if mode == "train":
-#         lemma2synsets = collections.OrderedDict(sorted(lemma2synsets.items()))
-#         index_l = 0
-#         index_s = 0
-#         for lemma, synsets in lemma2synsets.iteritems():
-#             lemma2id[lemma] = index_l
-#             index_l += 1
-#             for synset in synsets:
-#                 if synset not in synset2id:
-#                     synset2id[synset] = index_s
-#                     index_s += 1
-#     id2synset = {}
-#     id2pos = {}
-#     for synset, id in synset2id.iteritems():
-#         id2synset[id] = synset
-#         pos = synset.split("-")[1]
-#         id2pos[id] = pos
-#     wtd = []
-#     count_ambig = 0
-#     count_missing1 = 0
-#     count_missing2 = 0
-#     for sentence in data:
-#         for word in sentence:
-#             if word[-1][0] != "unspecified":
-#                 if len(word[-1]) > 1:
-#                     count_ambig += 1
-#                 synsets = []
-#                 # check if lemma is known
-#                 #if word[1] not in lemma2synsets:
-#                 if word[1] not in known_lemmas:
-#                     if len(lemma2synsets[word[1]]) == 1:
-#                         count_missing1 += 1
-#                     elif len(lemma2synsets[word[1]]) > 1:
-#                         count_missing2 += 1
-#                     lemma2synsets[word[1]] = [syn]
-#                 # check if synset is known
-#                 for syn in word[-1]:
-#                     if syn not in synset2id:
-#                         id = copy(len(synset2id))
-#                         synset2id[syn] = id
-#                         id2synset[id] = syn
-#                         pos = syn.split("-")[1]
-#                         id2pos[id] = pos
-#                     synsets.append(synset2id[syn])
-#                 word.append(synsets)
-#                 wtd.append(word)
-#             else:
-#                 word.append([-1])
-#     return data, lemma2synsets, lemma2id, synset2id, id2synset, id2pos
-
-
-# def format_data (wsd_method, input_data, src2id, lemma2synsets, synset2id, seq_width, word_embedding_case,
-#                  word_embedding_input, sense_embeddings=None):
-#
-#     inputs = []
-#     seq_lengths = []
-#     labels = []
-#     words_to_disambiguate = []
-#     # a list of the words in the sentences to be disambiguated (indexed by integers)
-#     indices = []
-#     ind_count = 0
-#     lemmas_to_disambiguate = []
-#     synsets_gold = []
-#     for i, sentence in enumerate(input_data):
-#         if len(sentence) > seq_width:
-#             sentence = sentence[:seq_width]
-#         current_input = []
-#         current_labels = []
-#         current_wtd = []
-#         current_gold_synsets = []
-#         for j, word in enumerate(sentence):
-#             current_flag = False
-#             if word[4] > -1:
-#                 current_flag = True
-#             # Change depending on whether lemma or wordform is used
-#             if word_embedding_input == "wordform":
-#                 if word_embedding_case == "lowercase":
-#                     if word[0].lower() in src2id:
-#                         current_input.append(src2id[word[0].lower()])
-#                     else:
-#                         current_input.append(src2id["UNK"])
-#                 elif word_embedding_case == "mixedcase":
-#                     if word[0] in src2id:
-#                         current_input.append(src2id[word[0]])
-#                     else:
-#                         current_input.append(src2id["UNK"])
-#             elif word_embedding_input == "lemma":
-#                 if word[1] in src2id:
-#                     current_input.append(src2id[word[1]])
-#                 else:
-#                     current_input.append(src2id["UNK"])
-#             # Only add labels for lemmas with more than 1 synset
-#             if word[1] in lemma2synsets:
-#                 if (word[4] > -1):
-#                     current_label = None
-#                     if wsd_method == "similarity":
-#                         if sense_embeddings != None:
-#                             current_label = sense_embeddings[word[4]]
-#                         else:
-#                             current_label = np.zeros(len(synset2id), dtype=int)
-#                             current_label[word[4]] = 1
-#                     elif wsd_method == "fullsoftmax":
-#                         current_label = np.zeros(len(synset2id), dtype=int)
-#                         current_label[word[4]] = 1
-#                     current_gold_synsets.append(word[4])
-#                     current_labels.append(current_label)
-#                     indices.append(copy(ind_count))
-#                     lemmas_to_disambiguate.append(word[1])
-#             # else:
-#             #     current_label = np.zeros(1, dtype=int)
-#             current_wtd.append(current_flag)
-#             ind_count += 1
-#
-#         #current_labels += (seq_width - len(current_labels)) * [[0]]
-#         current_wtd += (seq_width - len(current_wtd)) * [False]
-#
-#         if (len(current_input) < seq_width):
-#             ind_count += seq_width - len(current_input)
-#             current_input += (seq_width - len(current_input)) * [0]
-#         current_input = np.asarray(current_input)
-#         inputs.append(current_input)
-#         seq_lengths.append(len(sentence))
-#         # extend results in a 2-d tensor where sentences are concated; append results in a 3-d tensor
-#         labels.extend(current_labels)
-#         synsets_gold.extend(current_gold_synsets)
-#         words_to_disambiguate.append(current_wtd)
-#     seq_lengths = np.asarray(seq_lengths)
-#     words_to_disambiguate = np.asarray(words_to_disambiguate)
-#     labels = np.asarray(labels)
-#     indices = np.asarray(indices)
-#     inputs = np.asarray(inputs)
-#
-#     return inputs, seq_lengths, labels, words_to_disambiguate, indices, lemmas_to_disambiguate, synsets_gold
-
-def format_data_dropword (wsd_method, input_data, src2id, src2id_lemmas, synset2id, seq_width, word_embedding_case,
+def format_data (wsd_method, input_data, src2id, src2id_lemmas, synset2id, seq_width, word_embedding_case,
                  word_embedding_input, sense_embeddings=None, dropword=0.0):
 
     inputs = []
@@ -693,212 +425,11 @@ def format_data_dropword (wsd_method, input_data, src2id, src2id_lemmas, synset2
 
     return inputs, inputs_lemmas, seq_lengths, labels, words_to_disambiguate, indices, lemmas_to_disambiguate, synsets_gold
 
-# def format_data_joint (input_data, src2id, lemma2synsets, synset2id, seq_width, word_embedding_case,
-#                  word_embedding_input, sense_embeddings=None):
-#
-#     inputs = []
-#     seq_lengths = []
-#     labels = []
-#     sense_embeddings_gold = []
-#     words_to_disambiguate = []
-#     # a list of the words in the sentences to be disambiguated (indexed by integers)
-#     indices = []
-#     ind_count = 0
-#     lemmas_to_disambiguate = []
-#     synsets_gold = []
-#     for i, sentence in enumerate(input_data):
-#         if len(sentence) > seq_width:
-#             sentence = sentence[:seq_width]
-#         current_input = []
-#         current_labels = []
-#         current_sense_embeddings = []
-#         current_wtd = []
-#         current_gold_synsets = []
-#         for j, word in enumerate(sentence):
-#             current_flag = False
-#             if word[3] > -1:
-#                 current_flag = True
-#             # Change depending on whether lemma or wordform is used
-#             if word_embedding_input == "wordform":
-#                 if word_embedding_case == "lowercase":
-#                     if word[0].lower() in src2id:
-#                         current_input.append(src2id[word[0].lower()])
-#                     else:
-#                         current_input.append(src2id["UNK"])
-#                 elif word_embedding_case == "mixedcase":
-#                     if word[0] in src2id:
-#                         current_input.append(src2id[word[0]])
-#                     else:
-#                         current_input.append(src2id["UNK"])
-#             elif word_embedding_input == "lemma":
-#                 if word[1] in src2id:
-#                     current_input.append(src2id[word[1]])
-#                 else:
-#                     current_input.append(src2id["UNK"])
-#             # Only add labels for lemmas with more than 1 synset
-#             if word[1] in lemma2synsets:
-#                 if (word[3] > -1):
-#                     current_label = np.zeros(len(synset2id), dtype=int)
-#                     current_label[word[3]] = 1
-#                     current_sense_embedding = sense_embeddings[word[3]]
-#                     current_gold_synsets.append(word[3])
-#                     current_labels.append(current_label)
-#                     current_sense_embeddings.append(current_sense_embedding)
-#                     indices.append(copy(ind_count))
-#                     lemmas_to_disambiguate.append(word[1])
-#             # else:
-#             #     current_label = np.zeros(1, dtype=int)
-#             current_wtd.append(current_flag)
-#             ind_count += 1
-#
-#         #current_labels += (seq_width - len(current_labels)) * [[0]]
-#         current_wtd += (seq_width - len(current_wtd)) * [False]
-#
-#         if (len(current_input) < seq_width):
-#             ind_count += seq_width - len(current_input)
-#             current_input += (seq_width - len(current_input)) * [0]
-#         current_input = np.asarray(current_input)
-#         inputs.append(current_input)
-#         seq_lengths.append(len(sentence))
-#         # extend results in a 2-d tensor where sentences are concated; append results in a 3-d tensor
-#         labels.extend(current_labels)
-#         sense_embeddings_gold.extend(current_sense_embeddings)
-#         synsets_gold.extend(current_gold_synsets)
-#         words_to_disambiguate.append(current_wtd)
-#     seq_lengths = np.asarray(seq_lengths)
-#     words_to_disambiguate = np.asarray(words_to_disambiguate)
-#     labels = np.asarray(labels)
-#     sense_embeddings_gold = np.asarray(sense_embeddings_gold)
-#     indices = np.asarray(indices)
-#     inputs = np.asarray(inputs)
-#
-#     return inputs, seq_lengths, labels, sense_embeddings_gold, words_to_disambiguate, indices, lemmas_to_disambiguate, synsets_gold
-#
-#
-# def format_data_graded_label (input_data, src2id, lemma2synsets, synset2id, id2synset, seq_width, word_embedding_case,
-#                  word_embedding_input, sense_embeddings_path="None", similarities=None):
-#
-#     inputs = []
-#     seq_lengths = []
-#     labels = []
-#     words_to_disambiguate = []
-#     # a list of the words in the sentences to be disambiguated (indexed by integers)
-#     indices = []
-#     ind_count = 0
-#     lemmas_to_disambiguate = []
-#     # structures to hold the labels for individual synsets and the sense embeddings
-#     if sense_embeddings_path != "None":
-#         label_mappings = {}
-#         sense_embeddings_model = KeyedVectors.load_word2vec_format(sense_embeddings_path, binary=False)
-#         sense_embeddings_full = sense_embeddings_model.syn0
-#         sense_embeddings = np.zeros(shape=(len(synset2id), 300), dtype=float)
-#         id2synset_embeddings = sense_embeddings_model.index2word
-#         #synset2id_embeddings = {}
-#         for i, synset in enumerate(id2synset_embeddings):
-#             if synset in synset2id:
-#                 sense_embeddings[synset2id[synset]] = copy(sense_embeddings_full[i])
-#                 #synset2id_embeddings[synset] = i
-#         #similarities = cosine_similarity(sense_embeddings)
-#         similarities = pairwise_kernels(sense_embeddings, metric="cosine")
-#     for i, sentence in enumerate(input_data):
-#         if len(sentence) > seq_width:
-#             sentence = sentence[:seq_width]
-#         current_input = []
-#         current_labels = []
-#         current_wtd = []
-#         for j, word in enumerate(sentence):
-#             current_flag = False
-#             if word[3] > -1:
-#                 current_flag = True
-#             # Change depending on whether lemma or wordform is used
-#             if word_embedding_input == "wordform":
-#                 if word_embedding_case == "lowercase":
-#                     if word[0].lower() in src2id:
-#                         current_input.append(src2id[word[0].lower()])
-#                     else:
-#                         current_input.append(src2id["UNK"])
-#                 elif word_embedding_case == "mixedcase":
-#                     if word[0] in src2id:
-#                         current_input.append(src2id[word[0]])
-#                     else:
-#                         current_input.append(src2id["UNK"])
-#             elif word_embedding_input == "lemma":
-#                 if word[1] in src2id:
-#                     current_input.append(src2id[word[1]])
-#                 else:
-#                     current_input.append(src2id["UNK"])
-#             # Only add labels for lemmas with more than 1 synset
-#             if word[1] in lemma2synsets:
-#                 if (word[3] > -1):
-#                     if sense_embeddings_path != "None":
-#                         if word[3] in label_mappings:
-#                             current_label = copy(label_mappings[word[3]])
-#                         else:
-#                             synset_ids = [synset2id[i] for i in lemma2synsets[word[1]] if synset2id[i] != int(word[3])]
-#                             current_label = get_graded_label(word, similarities, id2synset, synset_ids)
-#                             label_mappings[word[3]] = copy(current_label)
-#                     else:
-#                         current_label = np.zeros(len(synset2id), dtype=int)
-#                         current_label[word[3]] = 1
-#                     current_labels.append(current_label)
-#                     indices.append(copy(ind_count))
-#                     lemmas_to_disambiguate.append(word[1])
-#             # else:
-#             #     current_label = np.zeros(1, dtype=int)
-#             current_wtd.append(current_flag)
-#             ind_count += 1
-#
-#         #current_labels += (seq_width - len(current_labels)) * [[0]]
-#         current_wtd += (seq_width - len(current_wtd)) * [False]
-#
-#         if (len(current_input) < seq_width):
-#             current_input += (seq_width - len(current_input)) * [0]
-#         current_input = np.asarray(current_input)
-#         inputs.append(current_input)
-#         seq_lengths.append(len(sentence))
-#         # extend results in a 2-d tensor where sentences are concated; append results in a 3-d tensor
-#         labels.extend(current_labels)
-#         words_to_disambiguate.append(current_wtd)
-#     seq_lengths = np.asarray(seq_lengths)
-#     words_to_disambiguate = np.asarray(words_to_disambiguate)
-#     labels = np.asarray(labels)
-#     indices = np.asarray(indices)
-#     inputs = np.asarray(inputs)
-#     if sense_embeddings_path == "None":
-#         similarities = None
-#
-#     return inputs, seq_lengths, labels, words_to_disambiguate, indices, lemmas_to_disambiguate, similarities
-#
-# def softmax(w, t = 1.0):
-#     e = np.exp(npa(w) / t)
-#     dist = e / np.sum(e)
-#     return dist
-#
-# def get_graded_label(word, similarities, id2synset, synset_ids):
-#
-#     label = np.zeros(len(id2synset), dtype=float)
-#     indices = []
-#     for i in xrange(len(label)):
-#         similarity = similarities[word[3]][i]
-#         if word[3] == i:
-#             label[i] = 0.6
-#             continue
-#         if i in synset_ids:
-#             label[i] = 0
-#             continue
-#         if similarity > 0.5:
-#             indices.append(i)
-#
-#         #label[i] = similarity
-#     if len(indices) > 0:
-#         p_mass = 0.4 / len(indices)
-#         for indx in indices:
-#            label[indx] = p_mass
-#     else:
-#         label[word[3]] = 1.0
-#
-#     #label = softmax(label)
-#     return label
+
+def softmax(w, t = 1.0):
+    e = np.exp(npa(w) / t)
+    dist = e / np.sum(e)
+    return dist
 
 
 def loadGloveModel(gloveFile):
@@ -920,7 +451,6 @@ def loadGloveModel(gloveFile):
         index += 1
     print "Done.",len(model)," words loaded!"
     return model, src2id, id2src
-
 
 
 if __name__ == "__main__":

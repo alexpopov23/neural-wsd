@@ -435,12 +435,14 @@ if __name__ == "__main__":
 
     data = args.training_data
     known_lemmas = set()
+    # Path to the mapping between WordNET sense keys and synset IDs; the file must reside in the folder with the training data
+    sensekey2synset = pickle.load(open(os.path.join(data, "sensekey2synset.pkl"), "rb"))
     if data_source == "naf":
         data, lemma2synsets, lemma2id, synset2id, id2synset, id2pos = \
             data_ops_final.read_folder_semcor(data, lexicon_mode=lexicon_mode, f_lex=lexicon)
     elif data_source == "uniroma":
         data, lemma2synsets, lemma2id, synset2id, id2synset, id2pos, known_lemmas, synset2freq = \
-            data_ops_final.read_data_uniroma(data, wsd_method=wsd_method, f_lex=lexicon)
+            data_ops_final.read_data_uniroma(data, sensekey2synset, wsd_method=wsd_method, f_lex=lexicon)
     test_data = args.test_data
     if test_data == "None":
         partition = int(len(data) * partition_point)
@@ -457,7 +459,7 @@ if __name__ == "__main__":
             data_ops_final.read_folder_semcor(test_data, lemma2synsets, lemma2id, synset2id, mode="test")
         elif data_source == "uniroma":
             val_data, lemma2synsets, lemma2id, synset2id, id2synset, id2pos, known_lemmas, synset2freq = \
-            data_ops_final.read_data_uniroma(test_data, lemma2synsets, lemma2id, synset2id, known_lemmas, synset2freq,
+            data_ops_final.read_data_uniroma(test_data, sensekey2synset, lemma2synsets, lemma2id, synset2id, known_lemmas, synset2freq,
                                              wsd_method=wsd_method, mode="test")
     # get synset embeddings if a path to a model is passed
     if sense_embeddings_src_path != "None":
@@ -473,7 +475,7 @@ if __name__ == "__main__":
                 sense_embeddings[synset2id[synset]] = copy(sense_embeddings_full[i])
 
     val_inputs, val_input_lemmas, val_seq_lengths, val_labels, val_words_to_disambiguate, \
-    val_indices, val_lemmas_to_disambiguate, val_synsets_gold = data_ops_final.format_data_dropword\
+    val_indices, val_lemmas_to_disambiguate, val_synsets_gold = data_ops_final.format_data\
                                                     (wsd_method, val_data, src2id, src2id_lemmas, synset2id,
                                                     seq_width, word_embedding_case, word_embedding_input,
                                                      sense_embeddings, dropword=0)
@@ -548,7 +550,7 @@ if __name__ == "__main__":
 
         batch = data[offset:(offset+batch_size)]
         inputs, input_lemmas, seq_lengths, labels, words_to_disambiguate, indices, lemmas, synsets_gold = \
-            data_ops_final.format_data_dropword(wsd_method, batch, src2id, src2id_lemmas, lemma2synsets, synset2id, seq_width,
+            data_ops_final.format_data(wsd_method, batch, src2id, src2id_lemmas, lemma2synsets, synset2id, seq_width,
                                              word_embedding_case, word_embedding_input, sense_embeddings, dropword)
         return inputs, input_lemmas, seq_lengths, labels, words_to_disambiguate, indices, lemmas, synsets_gold
 

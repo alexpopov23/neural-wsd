@@ -15,99 +15,6 @@ from copy import copy
 from sklearn.metrics.pairwise import cosine_similarity
 
 
-# class ModelSingleSoftmax:
-#     #TODO make model work with batches (no reason not to use them before the WSD part, I think)
-#     def __init__(self, is_first, synset2id, word_embedding_dim, vocab_size,
-#                  batch_size, seq_width, n_hidden, n_hidden_layers,
-#                  val_inputs, val_seq_lengths, val_flags, val_indices, val_labels):
-#         self.emb_placeholder = tf.placeholder(tf.float32, shape=[vocab_size, word_embedding_dim])
-#         self.embeddings = tf.Variable(self.emb_placeholder)
-#         self.set_embeddings = tf.assign(self.embeddings, self.emb_placeholder, validate_shape=False)
-#         # self.embeddings = tf.get_variable(name="W", shape=[len(src2id), word_embedding_dim], dtype=tf.float32,
-#         #                     initializer=tf.constant_initializer(word_embeddings), trainable=True)
-#         # weights and biases for the transorfmation after the RNN
-#         #TODO pick an initializer
-#         self.weights = tf.get_variable(name="softmax-w", shape=[2*n_hidden, len(synset2id)], dtype=tf.float32)
-#         self.biases = tf.get_variable(name="softmax-b", shape=[len(synset2id)], dtype=tf.float32)
-#         self.train_inputs = tf.placeholder(tf.int32, shape=[batch_size, seq_width])
-#         self.train_seq_lengths = tf.placeholder(tf.int32, shape=[batch_size])
-#         self.train_model_flags = tf.placeholder(tf.bool, shape=[batch_size, seq_width])
-#         self.train_labels = tf.placeholder(tf.int32, shape=[None, len(synset2id)])
-#         self.train_indices = tf.placeholder(tf.int32, shape=[None])
-#         self.val_inputs = tf.constant(val_inputs, tf.int32)
-#         self.val_seq_lengths = tf.constant(val_seq_lengths, tf.int32)
-#         self.val_flags = tf.constant(val_flags, tf.bool)
-#         #self.val_labels = tf.constant(val_labels, tf.int32)
-#         self.place = tf.placeholder(tf.int32, shape=val_labels.shape)
-#         self.val_labels = tf.Variable(self.place)
-#         self.val_indices = tf.constant(val_indices, tf.int32)
-#         self.keep_prob = tf.placeholder(tf.float32)
-#
-#         reuse = None if is_first else True
-#
-#         # create parameters for all word sense models
-#         #with tf.variable_scope("word-sense-models") as scope:
-#         #with tf.variable_scope(tf.get_variable_scope()) as scope:
-#
-#         def biRNN_WSD (inputs, seq_lengths, indices, embeddings, weights, biases, labels, is_training, keep_prob):
-#
-#
-#             with tf.variable_scope(tf.get_variable_scope()) as scope:
-#
-#                 # Bidirectional recurrent neural network with LSTM cells
-#                 initializer = tf.random_uniform_initializer(-1, 1)
-#                 # with tf.variable_scope('forward'):
-#                 # TODO: Use state_is_tuple=True
-#                 # TODO: add dropout
-#                 fw_cell = tf.contrib.rnn.LSTMCell(n_hidden, initializer=initializer)
-#                 if is_training:
-#                     fw_cell = tf.contrib.rnn.DropoutWrapper(fw_cell, input_keep_prob=keep_prob, output_keep_prob=keep_prob)
-#                 fw_multicell = tf.contrib.rnn.MultiRNNCell([fw_cell] * n_hidden_layers)
-#
-#                 # with tf.variable_scope('backward'):
-#                 # TODO: Use state_is_tuple=True
-#                 # TODO: add dropout
-#                 bw_cell = tf.contrib.rnn.LSTMCell(n_hidden, initializer=initializer)
-#                 if is_training:
-#                     bw_cell = tf.contrib.rnn.DropoutWrapper(bw_cell, input_keep_prob=keep_prob, output_keep_prob=keep_prob,)
-#                 bw_multicell = tf.contrib.rnn.MultiRNNCell([bw_cell] * n_hidden_layers)
-#
-#                 embedded_inputs = tf.nn.embedding_lookup(embeddings, inputs)
-#                 #embedded_inputs = tf.unstack(tf.transpose(embedded_inputs, [1, 0, 2]))
-#                 #embedded_inputs = tf.transpose(embedded_inputs, [1, 0, 2])
-#
-#                 # Get the blstm cell output
-#                 # rnn_outputs, _ = tf.nn.bidirectional_dynamic_rnn(fw_cell, bw_cell, embedded_inputs, dtype="float32",
-#                 #                                                  sequence_length=seq_lengths)
-#                 rnn_outputs, _ = tf.nn.bidirectional_dynamic_rnn(fw_multicell, bw_multicell, embedded_inputs, dtype="float32",
-#                                                                  sequence_length=seq_lengths)
-#
-#                 rnn_outputs = tf.concat(rnn_outputs, 2)
-#                 #rnn_outputs = tf.nn.dropout(rnn_outputs, keep_prob)
-#                 #rnn_outputs = tf.transpose(rnn_outputs, [1, 0, 2])
-#
-#                 scope.reuse_variables()
-#
-#                 rnn_outputs = tf.reshape(rnn_outputs, [-1, 2*n_hidden])
-#                 target_outputs = tf.gather(rnn_outputs, indices)
-#                 logits = tf.matmul(target_outputs, weights) + biases
-#                 losses = tf.nn.softmax_cross_entropy_with_logits(logits=logits, labels=labels)
-#                 cost = tf.reduce_mean(losses)
-#
-#             return cost, logits
-#
-#         self.cost, self.logits = biRNN_WSD(self.train_inputs, self.train_seq_lengths, self.train_indices,
-#                                            self.embeddings, self.weights, self.biases, self.train_labels,
-#                                            True, self.keep_prob)
-#         self.train_op = tf.train.GradientDescentOptimizer(learning_rate).minimize(self.cost)
-#         #self.train_op = tf.train.RMSPropOptimizer(learning_rate, decay=0.96, momentum=0.1).minimize(self.cost)
-#         #self.train_op = tf.train.AdagradOptimizer(learning_rate).minimize(self.cost)
-#         #scope.reuse_variables()
-#         tf.get_variable_scope().reuse_variables()
-#         _, self.val_logits = biRNN_WSD(self.val_inputs, self.val_seq_lengths, self.val_indices,
-#                                        self.embeddings, self.weights, self.biases, self.val_labels,
-#                                        False, 1.0)
-
 class ModelSingleSoftmax:
     #TODO make model work with batches (no reason not to use them before the WSD part, I think)
     def __init__(self, synset2id, word_embedding_dim, vocab_size,
@@ -270,12 +177,13 @@ def run_epoch(session, model, data, keep_prob, mode):
         words_to_disambiguate = data[4]
         indices = data[5]
         feed_dict = { model.train_inputs : inputs,
-                      model.train_inputs_lemmas : input_lemmas,
                       model.train_seq_lengths : seq_lengths,
                       model.train_model_flags : words_to_disambiguate,
                       model.train_indices : indices,
                       model.train_labels : labels,
                       model.keep_prob : keep_prob}
+        if len(input_lemmas) > 0:
+            feed_dict.update({model.train_inputs_lemmas : input_lemmas})
     if mode == "train":
         ops = [model.train_op, model.cost, model.logits]
     elif mode == "val":
@@ -465,7 +373,7 @@ if __name__ == "__main__":
                                              id2pos, known_lemmas, synset2freq, wsd_method=wsd_method, mode="test")
     # get synset embeddings if a path to a model is passed
     if sense_embeddings_src_path != "None":
-        if joint_embedding:
+        if joint_embedding == "True":
             sense_embeddings_model = word_embeddings_model
         else:
             sense_embeddings_model = KeyedVectors.load_word2vec_format(sense_embeddings_src_path, binary=False)
@@ -594,14 +502,22 @@ if __name__ == "__main__":
         # exit()
     else:
         init = tf.initialize_all_variables()
-        session.run(init, feed_dict={model.emb_placeholder: word_embeddings, model.place: val_labels})
+        if wsd_method == "similarity":
+            session.run(init, feed_dict={model.emb_placeholder: word_embeddings, model.place: val_labels})
+        elif wsd_method == "fullsoftmax":
+            if len(lemma_embeddings) > 0:
+                session.run(init, feed_dict={model.emb_placeholder: word_embeddings, model.emb_placeholder_lemmas: lemma_embeddings,
+                                             model.place: val_labels})
+            else:
+                session.run(init, feed_dict={model.emb_placeholder: word_embeddings, model.place: val_labels})
 
     #session.run(model.set_embeddings, feed_dict={model.emb_placeholder: word_embeddings})
 
+    print "Start of training"
     batch_loss = 0
     best_accuracy = 0.0
-    results = ""
-    results += str(args) + '\n\n'
+    results = open(os.path.join(args.save_path, 'results.txt'), "a", 0)
+    results.write(str(args) + '\n\n')
     if not os.path.exists(args.save_path):
         os.makedirs(args.save_path)
     for step in range(training_iters):
@@ -613,19 +529,21 @@ if __name__ == "__main__":
 
         val_accuracy = 0.0
         if (step % 100 == 0):
+            print "Step number " + str(step)
             fetches = run_epoch(session, model, input_data, keep_prob, mode="val")
             if (fetches[1] is not None):
                 batch_loss += fetches[1]
-            results += 'EPOCH: %d' % step + '\n'
-            results += 'Averaged minibatch loss at step ' + str(step) + ': ' + str(batch_loss/100.0) + '\n'
+            results.write('EPOCH: %d' % step + '\n')
+            results.write('Averaged minibatch loss at step ' + str(step) + ': ' + str(batch_loss/100.0) + '\n')
             if wsd_method == "similarity":
                 val_accuracy = str(accuracy_cosine_distance(fetches[3], val_labels, val_lemmas_to_disambiguate, val_synsets_gold))
-                results += 'Minibatch accuracy: ' + str(accuracy_cosine_distance(fetches[2], labels, lemmas_to_disambiguate, synsets_gold)) + '\n'
-                results += 'Validation accuracy: ' + val_accuracy + '\n'
+                results.write('Minibatch accuracy: ' + str(accuracy_cosine_distance(fetches[2], labels, lemmas_to_disambiguate, synsets_gold)) + '\n')
+                results.write('Validation accuracy: ' + val_accuracy + '\n')
             elif wsd_method == "fullsoftmax":
-                val_accuracy = str(accuracy(fetches[3], val_labels, val_lemmas_to_disambiguate, val_synsets_gold))
-                results += 'Minibatch accuracy: ' + str(accuracy(fetches[2], labels, lemmas_to_disambiguate, synsets_gold)) + '\n'
-                results += 'Validation accuracy: ' + val_accuracy + '\n'
+                val_accuracy = str(accuracy(fetches[3], val_lemmas_to_disambiguate, val_synsets_gold))
+                results.write('Minibatch accuracy: ' + str(accuracy(fetches[2], lemmas_to_disambiguate, synsets_gold)) + '\n')
+                results.write('Validation accuracy: ' + val_accuracy + '\n')
+            print "Validation accuracy: " + str(val_accuracy)
             batch_loss = 0.0
         else:
             fetches = run_epoch(session, model, input_data, keep_prob, mode="train")
@@ -647,5 +565,5 @@ if __name__ == "__main__":
                 with open(os.path.join(args.save_path, 'id2synset.pkl'), 'wb') as output:
                     pickle.dump(id2synset, output, pickle.HIGHEST_PROTOCOL)
 
-    results += '\n\n\n' + 'Best result is: ' + best_accuracy
-    f_out = open(os.path.join(args.save_path, 'results.txt'))
+    results.write('\n\n\n' + 'Best result is: ' + best_accuracy)
+    results.close()

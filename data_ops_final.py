@@ -401,9 +401,9 @@ def format_data (wsd_method, input_data, src2id, src2id_lemmas, synset2id, seq_w
         if (len(current_input) < seq_width):
             ind_count += seq_width - len(current_input)
             # changed [0] to [-1], should have no effect, but do check
-            current_input += (seq_width - len(current_input)) * [-1]
+            current_input += (seq_width - len(current_input)) * [src2id["UNK"]]
             if len(src2id_lemmas) > 0:
-                current_input_lemmas += (seq_width - len(current_input_lemmas)) * [-1]
+                current_input_lemmas += (seq_width - len(current_input_lemmas)) * [src2id_lemmas["UNK"]]
         current_input = np.asarray(current_input)
         if len(src2id_lemmas) > 0:
             current_input_lemmas = np.asarray(current_input_lemmas)

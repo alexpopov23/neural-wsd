@@ -516,10 +516,10 @@ if __name__ == "__main__":
     print "Start of training"
     batch_loss = 0
     best_accuracy = 0.0
-    results = open(os.path.join(args.save_path, 'results.txt'), "a", 0)
-    results.write(str(args) + '\n\n')
     if not os.path.exists(args.save_path):
         os.makedirs(args.save_path)
+    results = open(os.path.join(args.save_path, 'results.txt'), "a", 0)
+    results.write(str(args) + '\n\n')
     for step in range(training_iters):
         offset = (step * batch_size) % (len(data) - batch_size)
         inputs, input_lemmas, seq_lengths, labels, words_to_disambiguate, indices, lemmas_to_disambiguate, synsets_gold = new_batch(offset)

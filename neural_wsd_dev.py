@@ -8,7 +8,7 @@ import random
 import tensorflow as tf
 import numpy as np
 
-import data_ops_final
+import data_ops
 from gensim.models import KeyedVectors
 
 from copy import copy
@@ -305,7 +305,7 @@ if __name__ == "__main__":
             word_embeddings = tf.nn.l2_normalize(word_embeddings, 1).eval()
             #word_embeddings = np.vstack((word_embeddings, word_embedding_dim * [0.0]))
     elif word_embedding_method == "glove":
-        word_embeddings, src2id, id2src = data_ops_final.loadGloveModel(word_embeddings_src_path)
+        word_embeddings, src2id, id2src = data_ops.loadGloveModel(word_embeddings_src_path)
         word_embeddings = np.asarray(word_embeddings)
         src2id["UNK"] = src2id["unk"]
         del src2id["unk"]
@@ -349,10 +349,10 @@ if __name__ == "__main__":
     sensekey2synset = pickle.load(open(os.path.join(data, "sensekey2synset.pkl"), "rb"))
     if data_source == "naf":
         data, lemma2synsets, lemma2id, synset2id, id2synset, id2pos = \
-            data_ops_final.read_folder_semcor(data, lexicon_mode=lexicon_mode, f_lex=lexicon)
+            data_ops.read_folder_semcor(data, lexicon_mode=lexicon_mode, f_lex=lexicon)
     elif data_source == "uniroma":
         data, lemma2synsets, lemma2id, synset2id, id2synset, id2pos, known_lemmas, synset2freq = \
-            data_ops_final.read_data_uniroma(data, sensekey2synset, wsd_method=wsd_method, f_lex=lexicon)
+            data_ops.read_data_uniroma(data, sensekey2synset, wsd_method=wsd_method, f_lex=lexicon)
     test_data = args.test_data
     if test_data == "None":
         partition = int(len(data) * partition_point)
@@ -366,11 +366,11 @@ if __name__ == "__main__":
         train_data = data
         if data_source == "naf":
             val_data, lemma2synsets, lemma2id, synset2id, id2synset, id2pos = \
-            data_ops_final.read_folder_semcor(test_data, lemma2synsets, lemma2id, synset2id, mode="test")
+            data_ops.read_folder_semcor(test_data, lemma2synsets, lemma2id, synset2id, mode="test")
         elif data_source == "uniroma":
             val_data, lemma2synsets, lemma2id, synset2id, id2synset, id2pos, known_lemmas, synset2freq = \
-            data_ops_final.read_data_uniroma(test_data, sensekey2synset, lemma2synsets, lemma2id, synset2id, id2synset,
-                                             id2pos, known_lemmas, synset2freq, wsd_method=wsd_method, mode="test")
+            data_ops.read_data_uniroma(test_data, sensekey2synset, lemma2synsets, lemma2id, synset2id, id2synset,
+                                       id2pos, known_lemmas, synset2freq, wsd_method=wsd_method, mode="test")
     # get synset embeddings if a path to a model is passed
     if sense_embeddings_src_path != "None":
         if joint_embedding == "True":
@@ -387,7 +387,7 @@ if __name__ == "__main__":
         sense_embeddings = None
 
     val_inputs, val_input_lemmas, val_seq_lengths, val_labels, val_words_to_disambiguate, \
-    val_indices, val_lemmas_to_disambiguate, val_synsets_gold = data_ops_final.format_data\
+    val_indices, val_lemmas_to_disambiguate, val_synsets_gold = data_ops.format_data\
                                                     (wsd_method, val_data, src2id, src2id_lemmas, synset2id,
                                                     seq_width, word_embedding_case, word_embedding_input,
                                                      sense_embeddings, dropword=0)
@@ -462,14 +462,14 @@ if __name__ == "__main__":
 
         batch = data[offset:(offset+batch_size)]
         inputs, input_lemmas, seq_lengths, labels, words_to_disambiguate, indices, lemmas, synsets_gold = \
-            data_ops_final.format_data(wsd_method, batch, src2id, src2id_lemmas, synset2id, seq_width,
-                                             word_embedding_case, word_embedding_input, sense_embeddings, dropword)
+            data_ops.format_data(wsd_method, batch, src2id, src2id_lemmas, synset2id, seq_width,
+                                 word_embedding_case, word_embedding_input, sense_embeddings, dropword)
         return inputs, input_lemmas, seq_lengths, labels, words_to_disambiguate, indices, lemmas, synsets_gold
 
     model = None
     if wsd_method == "similarity":
-        model = ModelVectorSimilarity(True, synset2id, word_embedding_dim, vocab_size, batch_size, seq_width,
-                      n_hidden, val_inputs, val_seq_lengths, val_words_to_disambiguate, val_indices, val_labels)
+        model = ModelVectorSimilarity(word_embedding_dim, vocab_size, batch_size, seq_width, n_hidden, val_inputs,
+                                      val_seq_lengths, val_words_to_disambiguate, val_indices, val_labels)
     elif wsd_method == "fullsoftmax":
         model = ModelSingleSoftmax(synset2id, word_embedding_dim, vocab_size, batch_size, seq_width, n_hidden,
                                    n_hidden_layers, val_inputs, val_input_lemmas, val_seq_lengths, val_words_to_disambiguate,
@@ -536,8 +536,8 @@ if __name__ == "__main__":
             results.write('EPOCH: %d' % step + '\n')
             results.write('Averaged minibatch loss at step ' + str(step) + ': ' + str(batch_loss/100.0) + '\n')
             if wsd_method == "similarity":
-                val_accuracy = str(accuracy_cosine_distance(fetches[3], val_labels, val_lemmas_to_disambiguate, val_synsets_gold))
-                results.write('Minibatch accuracy: ' + str(accuracy_cosine_distance(fetches[2], labels, lemmas_to_disambiguate, synsets_gold)) + '\n')
+                val_accuracy = str(accuracy_cosine_distance(fetches[3], val_lemmas_to_disambiguate, val_synsets_gold))
+                results.write('Minibatch accuracy: ' + str(accuracy_cosine_distance(fetches[2], lemmas_to_disambiguate, synsets_gold)) + '\n')
                 results.write('Validation accuracy: ' + val_accuracy + '\n')
             elif wsd_method == "fullsoftmax":
                 val_accuracy = str(accuracy(fetches[3], val_lemmas_to_disambiguate, val_synsets_gold))

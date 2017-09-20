@@ -2,6 +2,7 @@ import collections
 import os
 import random
 import pickle
+import re
 
 import numpy as np
 import _elementtree as ET
@@ -233,32 +234,35 @@ def read_data_uniroma (path, sensekey2synset, lemma2synsets={}, lemma2id={}, syn
         code = entries[0]
         keys = entries[1:]
         codes2keys[code] = keys
+    #with open(os.path.join(path, path_data)) as f:
+    #    xml = f.read()
+    #tree = ET.fromstring(re.sub(r"(<\?xml[^>]+\?>)", r"\1<root>", xml) + "</root>")
     tree = ET.parse(os.path.join(path, path_data))
     doc = tree.getroot()
-    texts = doc.findall("text")
-    count_inst = 0
-    for text in texts:
-        sentences = text.findall("sentence")
-        for sentence in sentences:
-            current_sentence = []
-            elements = sentence.findall(".//")
-            for element in elements:
-                wordform = element.text
-                lemma = element.get("lemma")
-                if mode == "train":
-                    known_lemmas.add(lemma)
-                pos = element.get("pos")
-                if element.tag == "instance":
-                    count_inst += 1
-                    synsets = [sensekey2synset[key] for key in codes2keys[element.get("id")]]
-                    # TODO: fix in the generation of the dictionary, this here is a needless check
-                    for synset in synsets:
-                        if synset.endswith("-s"):
-                            synsets[synsets.index(synset)] = synset.replace("-s", "-a")
-                else:
-                    synsets = ["unspecified"]
-                current_sentence.append([wordform, lemma, pos, synsets])
-            data.append(current_sentence)
+    corpora = doc.findall("corpus")
+    for corpus in corpora:
+        texts = corpus.findall("text")
+        for text in texts:
+            sentences = text.findall("sentence")
+            for sentence in sentences:
+                current_sentence = []
+                elements = sentence.findall(".//")
+                for element in elements:
+                    wordform = element.text
+                    lemma = element.get("lemma")
+                    if mode == "train":
+                        known_lemmas.add(lemma)
+                    pos = element.get("pos")
+                    if element.tag == "instance":
+                        synsets = [sensekey2synset[key] for key in codes2keys[element.get("id")]]
+                        # TODO: fix in the generation of the dictionary, this here is a needless check
+                        for synset in synsets:
+                            if synset.endswith("-s"):
+                                synsets[synsets.index(synset)] = synset.replace("-s", "-a")
+                    else:
+                        synsets = ["unspecified"]
+                    current_sentence.append([wordform, lemma, pos, synsets])
+                data.append(current_sentence)
     if mode == "train":
         lemma2synsets = collections.OrderedDict(sorted(lemma2synsets.items()))
         index_l = 0

@@ -553,17 +553,17 @@ if __name__ == "__main__":
         if val_accuracy > best_accuracy:
             best_accuracy = val_accuracy
 
-        if (args.save_path != "None" and step == 25000 or step > 25000 and val_accuracy == best_accuracy):
-            saver.save(session, os.path.join(args.save_path, "model.ckpt"), global_step=step)
-            if (step == 25000):
-                with open(os.path.join(args.save_path, 'lemma2synsets.pkl'), 'wb') as output:
-                    pickle.dump(lemma2synsets, output, pickle.HIGHEST_PROTOCOL)
-                with open(os.path.join(args.save_path, 'lemma2id.pkl'), 'wb') as output:
-                    pickle.dump(lemma2id, output, pickle.HIGHEST_PROTOCOL)
-                with open(os.path.join(args.save_path, 'synset2id.pkl'), 'wb') as output:
-                    pickle.dump(synset2id, output, pickle.HIGHEST_PROTOCOL)
-                with open(os.path.join(args.save_path, 'id2synset.pkl'), 'wb') as output:
-                    pickle.dump(id2synset, output, pickle.HIGHEST_PROTOCOL)
+        # if (args.save_path != "None" and step == 25000 or step > 25000 and val_accuracy == best_accuracy):
+        #     saver.save(session, os.path.join(args.save_path, "model.ckpt"), global_step=step)
+        #     if (step == 25000):
+        #         with open(os.path.join(args.save_path, 'lemma2synsets.pkl'), 'wb') as output:
+        #             pickle.dump(lemma2synsets, output, pickle.HIGHEST_PROTOCOL)
+        #         with open(os.path.join(args.save_path, 'lemma2id.pkl'), 'wb') as output:
+        #             pickle.dump(lemma2id, output, pickle.HIGHEST_PROTOCOL)
+        #         with open(os.path.join(args.save_path, 'synset2id.pkl'), 'wb') as output:
+        #             pickle.dump(synset2id, output, pickle.HIGHEST_PROTOCOL)
+        #         with open(os.path.join(args.save_path, 'id2synset.pkl'), 'wb') as output:
+        #             pickle.dump(id2synset, output, pickle.HIGHEST_PROTOCOL)
 
     results.write('\n\n\n' + 'Best result is: ' + best_accuracy)
     results.close()

@@ -9,6 +9,7 @@ import _elementtree as ET
 
 
 from copy import copy
+from collections import deque
 from gensim.models import KeyedVectors
 from sklearn.metrics.pairwise import cosine_similarity, pairwise_kernels
 from nltk.corpus import wordnet
@@ -227,7 +228,6 @@ class TextObject:
 def read_data_uniroma (path, sensekey2synset, lemma2synsets={}, lemma2id={}, synset2id={}, id2synset={}, id2pos={},
                        known_lemmas=set(), synset2freq = {}, wsd_method="full_dictionary", mode="train", f_lex=None):
 
-    data = []
     if mode == "train":
         # get lexicon from the WordNet files
         lexicon = open(f_lex, "r")
@@ -355,6 +355,134 @@ def read_data_uniroma (path, sensekey2synset, lemma2synsets={}, lemma2id={}, syn
 
     return textObjects, lemma2synsets, lemma2id, synset2id, id2synset, id2pos, known_lemmas, synset2freq
 
+def format_data_val (wsd_method, input_data, src2id, src2id_lemmas, synset2id, seq_width, word_embedding_case,
+                 word_embedding_input, sense_embeddings=None, dropword=0.0):
+
+    inputs = []
+    inputs_lemmas = []
+    seq_lengths = []
+    labels = []
+    words_to_disambiguate = []
+    # a list of the words in the sentences to be disambiguated (indexed by integers)
+    indices = []
+    ind_count = 0
+    lemmas_to_disambiguate = []
+    synsets_gold = []
+    for text in input_data:
+        t_inputs, t_inputs_lemmas, t_seq_lengths, t_words_to_disambiguate = [], [], [], []
+        for i, sentence in enumerate(text.sentences):
+            if len(sentence) > seq_width:
+                sentence = sentence[:seq_width]
+            current_input = []
+            current_input_lemmas = []
+            current_labels = []
+            current_wtd = []
+            current_gold_synsets = []
+            for j, word in enumerate(sentence):
+                rand_num = random.uniform(0, 1)
+                if rand_num < dropword:
+                    continue
+                current_flag = False
+                if word[4][0] > -1:
+                    current_flag = True
+                # Change depending on whether lemma or wordform is used
+                if word_embedding_input == "wordform":
+                    if word_embedding_case == "lowercase":
+                        if word[0].lower() in src2id:
+                            current_input.append(src2id[word[0].lower()])
+                        else:
+                            current_input.append(src2id["UNK"])
+                    elif word_embedding_case == "mixedcase":
+                        if word[0] in src2id:
+                            current_input.append(src2id[word[0]])
+                        else:
+                            current_input.append(src2id["UNK"])
+                    # Changed 'word[0]' to 'word[1]' --> check difference in results
+                    if len(src2id_lemmas) > 0:
+                        if word[1].lower() in src2id_lemmas:
+                            current_input_lemmas.append(src2id_lemmas[word[1].lower()])
+                        else:
+                            current_input_lemmas.append(src2id_lemmas["UNK"])
+                elif word_embedding_input == "lemma":
+                    if word[1] in src2id:
+                        current_input.append(src2id[word[1]])
+                    else:
+                        current_input.append(src2id["UNK"])
+                    if len(src2id_lemmas) > 0:
+                        if word[1].lower() in src2id_lemmas:
+                            current_input_lemmas.append(src2id_lemmas[word[1].lower()])
+                        else:
+                            current_input_lemmas.append(src2id_lemmas["UNK"])
+                if (word[-1][0] > -1):
+                    current_label = np.zeros([300], dtype=float)
+                    if wsd_method == "similarity":
+                        # TODO fix the handling of lists of synsets, like in fullmax case
+                        if sense_embeddings != None:
+                            for syn in word[-1]:
+                                if syn < len(sense_embeddings):
+                                    current_label += sense_embeddings[syn]
+                            current_label = current_label / len(word[-1])
+                        else:
+                            current_label = np.zeros(len(synset2id), dtype=int)
+                            current_label[word[-1]] = 1
+                    elif wsd_method == "fullsoftmax":
+                        current_label = np.zeros(len(synset2id), dtype=float)
+                        for syn in word[-1]:
+                            current_label[syn] = 1.0/len(word[-1])
+                    current_gold_synsets.append(word[-2])
+                    current_labels.append(current_label)
+                    indices.append(ind_count)
+                    lemmas_to_disambiguate.append(word[1])
+                # else:
+                #     current_label = np.zeros(1, dtype=int)
+                current_wtd.append(current_flag)
+                ind_count += 1
+
+            current_wtd += (seq_width - len(current_wtd)) * [False]
+            t_seq_lengths.append(len(current_input))
+            if (len(current_input) < seq_width):
+                ind_count += seq_width - len(current_input)
+                # changed [0] to [-1], should have no effect, but do check
+                current_input += (seq_width - len(current_input)) * [src2id["UNK"]]
+                if len(src2id_lemmas) > 0:
+                    current_input_lemmas += (seq_width - len(current_input_lemmas)) * [src2id_lemmas["UNK"]]
+            current_input = np.asarray(current_input)
+            if len(src2id_lemmas) > 0:
+                current_input_lemmas = np.asarray(current_input_lemmas)
+            t_inputs.append(current_input)
+            if len(src2id_lemmas) > 0:
+                t_inputs_lemmas.append(current_input_lemmas)
+            # extend results in a 2-d tensor where sentences are concatenated; append results in a 3-d tensor
+            labels.extend(current_labels)
+            synsets_gold.extend(current_gold_synsets)
+            t_words_to_disambiguate.append(current_wtd)
+        inputs.append(t_inputs)
+        inputs_lemmas.append(t_inputs_lemmas)
+        seq_lengths.append(t_seq_lengths)
+        words_to_disambiguate.append(t_words_to_disambiguate)
+    seq_lengths = np.asarray(seq_lengths)
+    words_to_disambiguate = np.asarray(words_to_disambiguate)
+    labels = np.asarray(labels)
+    indices = np.asarray(indices)
+    inputs = np.asarray(inputs)
+    inputs_lemmas = np.asarray(inputs_lemmas)
+
+    return inputs, inputs_lemmas, seq_lengths, labels, words_to_disambiguate, indices, lemmas_to_disambiguate, synsets_gold
+
+def get_contextual_training_batch (wsd_method, data, iterations, batch_size):
+
+    list = deque(data[:batch_size])
+    queue = deque(data[batch_size:])
+    for i in range(iterations):
+        batch = []
+        for j in range(batch_size):
+            current_text = list[j]
+            current_sent = current_text.getSentence()
+            batch.append(current_sent)
+            if current_text.hasFinished():
+                list.append(queue.popleft())
+                queue.append(list.pop(j))
+        yield batch
 
 def format_data (wsd_method, input_data, src2id, src2id_lemmas, synset2id, seq_width, word_embedding_case,
                  word_embedding_input, sense_embeddings=None, dropword=0.0):

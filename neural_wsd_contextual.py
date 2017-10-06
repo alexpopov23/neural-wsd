@@ -8,7 +8,7 @@ import random
 import tensorflow as tf
 import numpy as np
 
-import data_ops
+import data_ops_contextual, data_ops
 from gensim.models import KeyedVectors
 
 from copy import copy
@@ -150,6 +150,7 @@ class ModelVectorSimilarity:
                 bw_multicell = tf.contrib.rnn.MultiRNNCell([bw_cell] * n_hidden_layers)
                 embedded_inputs = tf.nn.embedding_lookup(embeddings, inputs)
                 # Get the blstm cell output
+                output_states = []
                 if is_training:
                     rnn_outputs, output_states = tf.nn.bidirectional_dynamic_rnn(fw_multicell,
                                                                                  bw_multicell,
@@ -160,27 +161,30 @@ class ModelVectorSimilarity:
                                                                                  initial_state_bw=contexts[1])
                 else:
                     rnn_outputs = []
-                    output_states = []
                     texts = tf.unstack(embedded_inputs)
-                    for text in texts:
-                        output_state_old = tf.zeros(dtype=tf.float32, shape=[n_hidden])
+                    for i, text in enumerate(texts):
+                        t_rnn_outputs = []
+                        t_output_states = []
+                        output_state_old = [tf.zeros(dtype=tf.float32, shape=[n_hidden]) * 2]
                         sents = tf.unstack(text)
-                        for sent in sents:
+                        for j, sent in enumerate(sents):
                             rnn_output, output_state_new = tf.nn.bidirectional_dynamic_rnn(fw_multicell,
                                                                                  bw_multicell,
-                                                                                 embedded_inputs,
+                                                                                 sent,
                                                                                  dtype="float32",
-                                                                                 sequence_length=seq_lengths,
+                                                                                 sequence_length=seq_lengths[i, j],
                                                                                  initial_state_fw=output_state_old[0],
                                                                                  initial_state_bw=output_state_old[1])
-                            rnn_outputs.append(rnn_output)
-                            output_states.append(output_state_new)
+                            t_rnn_outputs.append(rnn_output)
+                            t_output_states.append(output_state_new)
                             output_state_old = output_state_new
+                        rnn_outputs.append(tf.stack(t_rnn_outputs))
+                        output_states.append(tf.stack(t_output_states))
                     rnn_outputs = tf.stack(rnn_outputs)
                     output_states = tf.stack(output_states)
 
-                rnn_outputs = tf.concat(rnn_outputs, 2)
-                output_states = tf.concat(output_states, 2)
+                rnn_outputs = tf.concat(rnn_outputs, -1)
+                output_states = tf.concat(output_states, -1)
                 scope.reuse_variables()
                 rnn_outputs = tf.reshape(rnn_outputs, [-1, 2*n_hidden])
                 target_outputs = tf.gather(rnn_outputs, indices)
@@ -383,7 +387,7 @@ if __name__ == "__main__":
             data_ops.read_folder_semcor(data, lexicon_mode=lexicon_mode, f_lex=lexicon)
     elif data_source == "uniroma":
         data, lemma2synsets, lemma2id, synset2id, id2synset, id2pos, known_lemmas, synset2freq = \
-            data_ops.read_data_uniroma(data, sensekey2synset, wsd_method=wsd_method, f_lex=lexicon)
+            data_ops_contextual.read_data_uniroma(data, sensekey2synset, wsd_method=wsd_method, f_lex=lexicon)
     test_data = args.test_data
     if test_data == "None":
         partition = int(len(data) * partition_point)
@@ -400,7 +404,7 @@ if __name__ == "__main__":
             data_ops.read_folder_semcor(test_data, lemma2synsets, lemma2id, synset2id, mode="test")
         elif data_source == "uniroma":
             val_data, lemma2synsets, lemma2id, synset2id, id2synset, id2pos, known_lemmas, synset2freq = \
-            data_ops.read_data_uniroma(test_data, sensekey2synset, lemma2synsets, lemma2id, synset2id, id2synset,
+            data_ops_contextual.read_data_uniroma(test_data, sensekey2synset, lemma2synsets, lemma2id, synset2id, id2synset,
                                        id2pos, known_lemmas, synset2freq, wsd_method=wsd_method, mode="test")
     # get synset embeddings if a path to a model is passed
     if sense_embeddings_src_path != "None":
@@ -418,7 +422,7 @@ if __name__ == "__main__":
         sense_embeddings = None
 
     val_inputs, val_input_lemmas, val_seq_lengths, val_labels, val_words_to_disambiguate, \
-    val_indices, val_lemmas_to_disambiguate, val_synsets_gold = data_ops.format_data\
+    val_indices, val_lemmas_to_disambiguate, val_synsets_gold = data_ops_contextual.format_data_val\
                                                     (wsd_method, val_data, src2id, src2id_lemmas, synset2id,
                                                     seq_width, word_embedding_case, word_embedding_input,
                                                      sense_embeddings, dropword=0)

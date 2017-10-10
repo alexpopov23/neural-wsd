@@ -456,7 +456,7 @@ def format_data_val (wsd_method, input_data, src2id, src2id_lemmas, synset2id, s
             labels.extend(current_labels)
             synsets_gold.extend(current_gold_synsets)
             t_words_to_disambiguate.append(current_wtd)
-        inputs.append(t_inputs)
+        inputs.append(np.array(t_inputs))
         inputs_lemmas.append(t_inputs_lemmas)
         seq_lengths.append(t_seq_lengths)
         words_to_disambiguate.append(t_words_to_disambiguate)
@@ -464,7 +464,7 @@ def format_data_val (wsd_method, input_data, src2id, src2id_lemmas, synset2id, s
     words_to_disambiguate = np.asarray(words_to_disambiguate)
     labels = np.asarray(labels)
     indices = np.asarray(indices)
-    inputs = np.asarray(inputs)
+    #inputs = np.asarray(inputs)
     inputs_lemmas = np.asarray(inputs_lemmas)
 
     return inputs, inputs_lemmas, seq_lengths, labels, words_to_disambiguate, indices, lemmas_to_disambiguate, synsets_gold

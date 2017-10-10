@@ -122,8 +122,8 @@ class ModelVectorSimilarity:
         self.train_model_flags = tf.placeholder(tf.bool, shape=[batch_size, seq_width])
         self.train_labels = tf.placeholder(tf.float32, shape=[None, word_embedding_dim])
         self.train_indices = tf.placeholder(tf.int32, shape=[None])
-        self.val_inputs = tf.constant(val_inputs, tf.int32)
-        self.val_seq_lengths = tf.constant(val_seq_lengths, tf.int32)
+        self.val_inputs = [tf.constant(val_input) for val_input in val_inputs]
+        self.val_seq_lengths = [tf.constant(val_seq_length, tf.int32) for val_seq_length in val_seq_lengths]
         self.val_flags = tf.constant(val_flags, tf.bool)
         self.place = tf.placeholder(tf.float32, shape=val_labels.shape)
         self.val_labels = tf.Variable(self.place)
@@ -161,8 +161,8 @@ class ModelVectorSimilarity:
                                                                                  initial_state_bw=contexts[1])
                 else:
                     rnn_outputs = []
-                    texts = tf.unstack(embedded_inputs)
-                    for i, text in enumerate(texts):
+                    #texts = tf.unstack(embedded_inputs)
+                    for i, text in enumerate(embedded_inputs):
                         t_rnn_outputs = []
                         t_output_states = []
                         output_state_old = [tf.zeros(dtype=tf.float32, shape=[n_hidden]) * 2]
@@ -172,7 +172,7 @@ class ModelVectorSimilarity:
                                                                                  bw_multicell,
                                                                                  sent,
                                                                                  dtype="float32",
-                                                                                 sequence_length=seq_lengths[i, j],
+                                                                                 sequence_length=seq_lengths[i][j],
                                                                                  initial_state_fw=output_state_old[0],
                                                                                  initial_state_bw=output_state_old[1])
                             t_rnn_outputs.append(rnn_output)

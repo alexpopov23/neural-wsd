@@ -117,8 +117,10 @@ class ModelVectorSimilarity:
         self.train_inputs = tf.placeholder(tf.int32, shape=[batch_size, seq_width])
         self.train_seq_lengths = tf.placeholder(tf.int32, shape=[batch_size])
         # placeholders to hold the states of the previously analyzed sentences from the same text
-        self.train_contexts_fw = tf.placeholder(tf.float32, shape=[batch_size, seq_width, n_hidden])
-        self.train_contexts_bw = tf.placeholder(tf.float32, shape=[batch_size, seq_width, n_hidden])
+        self.train_contexts_fw_c = tf.placeholder(tf.float32, shape=[batch_size, n_hidden])
+        self.train_contexts_fw_h = tf.placeholder(tf.float32, shape=[batch_size, n_hidden])
+        self.train_contexts_bw_c = tf.placeholder(tf.float32, shape=[batch_size, n_hidden])
+        self.train_contexts_bw_h = tf.placeholder(tf.float32, shape=[batch_size, n_hidden])
         self.train_model_flags = tf.placeholder(tf.bool, shape=[batch_size, seq_width])
         self.train_labels = tf.placeholder(tf.float32, shape=[None, word_embedding_dim])
         self.train_indices = tf.placeholder(tf.int32, shape=[None])
@@ -130,7 +132,8 @@ class ModelVectorSimilarity:
         self.val_indices = tf.constant(val_indices, tf.int32)
         self.keep_prob = tf.placeholder(tf.float32)
 
-        def biRNN_WSD (inputs, seq_lengths, indices, embeddings, weights, biases, contexts, labels, is_training, keep_prob=1.0):
+        def biRNN_WSD (inputs, seq_lengths, indices, embeddings, weights, biases, contexts_fw, contexts_bw,
+                       labels, is_training, keep_prob=1.0):
 
             with tf.variable_scope(tf.get_variable_scope()) as scope:
 
@@ -148,7 +151,12 @@ class ModelVectorSimilarity:
                 if is_training:
                     bw_cell = tf.contrib.rnn.DropoutWrapper(bw_cell, input_keep_prob=keep_prob, output_keep_prob=keep_prob,)
                 bw_multicell = tf.contrib.rnn.MultiRNNCell([bw_cell] * n_hidden_layers)
-                embedded_inputs = tf.nn.embedding_lookup(embeddings, inputs)
+                if is_training:
+                    embedded_inputs = tf.nn.embedding_lookup(embeddings, inputs)
+                else:
+                    embedded_inputs = []
+                    for input in inputs:
+                        embedded_inputs.append(tf.nn.embedding_lookup(embeddings, input))
                 # Get the blstm cell output
                 output_states = []
                 if is_training:
@@ -157,15 +165,20 @@ class ModelVectorSimilarity:
                                                                                  embedded_inputs,
                                                                                  dtype="float32",
                                                                                  sequence_length=seq_lengths,
-                                                                                 initial_state_fw=contexts[0],
-                                                                                 initial_state_bw=contexts[1])
+                                                                                 initial_state_fw=(contexts_fw,),
+                                                                                 initial_state_bw=(contexts_bw,))
                 else:
                     rnn_outputs = []
                     #texts = tf.unstack(embedded_inputs)
                     for i, text in enumerate(embedded_inputs):
                         t_rnn_outputs = []
                         t_output_states = []
-                        output_state_old = [tf.zeros(dtype=tf.float32, shape=[n_hidden]) * 2]
+                        zero_state = tf.zeros(dtype=tf.float32, shape=[n_hidden])
+                        output_state_old = [tf.nn.rnn_cell.LSTMStateTuple(copy(zero_state),
+                                                                          copy(zero_state)),
+                                            tf.nn.rnn_cell.LSTMStateTuple(copy(zero_state),
+                                                                          copy(zero_state))]
+                        #output_state_old = [tf.zeros(dtype=tf.float32, shape=[n_hidden])] * 2
                         sents = tf.unstack(text)
                         for j, sent in enumerate(sents):
                             rnn_output, output_state_new = tf.nn.bidirectional_dynamic_rnn(fw_multicell,
@@ -194,12 +207,31 @@ class ModelVectorSimilarity:
 
             return cost, output_emb, output_states
 
-        self.cost, self.logits, self.contexts = biRNN_WSD(self.train_inputs, self.train_seq_lengths, self.train_indices, self.embeddings,
-                                           self.weights, self.biases, self.train_contexts, self.train_labels, True, self.keep_prob)
+        self.cost, self.logits, self.contexts = biRNN_WSD(self.train_inputs,
+                                                          self.train_seq_lengths,
+                                                          self.train_indices,
+                                                          self.embeddings,
+                                                          self.weights,
+                                                          self.biases,
+                                                          tf.nn.rnn_cell.LSTMStateTuple(self.train_contexts_fw_c,
+                                                                                        self.train_contexts_fw_h),
+                                                          tf.nn.rnn_cell.LSTMStateTuple(self.train_contexts_bw_c,
+                                                                                        self.train_contexts_bw_h),
+                                                          self.train_labels,
+                                                          True,
+                                                          self.keep_prob)
         self.train_op = tf.train.GradientDescentOptimizer(learning_rate).minimize(self.cost)
         tf.get_variable_scope().reuse_variables()
-        _, self.val_logits, _ = biRNN_WSD(self.val_inputs, self.val_seq_lengths, self.val_indices,
-                                       self.embeddings, self.weights, self.biases, self.val_contexts, self.val_labels, False)
+        _, self.val_logits, _ = biRNN_WSD(self.val_inputs,
+                                          self.val_seq_lengths,
+                                          self.val_indices,
+                                          self.embeddings,
+                                          self.weights,
+                                          self.biases,
+                                          None,
+                                          None,
+                                          self.val_labels,
+                                          False)
 
 def run_epoch(session, model, data, keep_prob, mode):
 

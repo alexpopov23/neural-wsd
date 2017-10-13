@@ -220,7 +220,7 @@ class TextObject:
 
         return self.sentences[self.counter]
 
-    def hasFinished(self):
+    def checkIfFinished(self):
 
         return self.hasFinished
 
@@ -469,7 +469,7 @@ def format_data_val (wsd_method, input_data, src2id, src2id_lemmas, synset2id, s
 
     return inputs, inputs_lemmas, seq_lengths, labels, words_to_disambiguate, indices, lemmas_to_disambiguate, synsets_gold
 
-def get_contextual_training_batch (wsd_method, data, iterations, batch_size):
+def get_contextual_training_batch (data, iterations, batch_size):
 
     list = deque(data[:batch_size])
     queue = deque(data[batch_size:])
@@ -479,7 +479,7 @@ def get_contextual_training_batch (wsd_method, data, iterations, batch_size):
             current_text = list[j]
             current_sent = current_text.getSentence()
             batch.append(current_sent)
-            if current_text.hasFinished():
+            if current_text.checkIfFinished() == True:
                 list.append(queue.popleft())
                 queue.append(list.pop(j))
         yield batch
@@ -544,14 +544,10 @@ def format_data (wsd_method, input_data, src2id, src2id_lemmas, synset2id, seq_w
                 current_label = np.zeros([300], dtype=float)
                 if wsd_method == "similarity":
                     # TODO fix the handling of lists of synsets, like in fullmax case
-                    if sense_embeddings != None:
-                        for syn in word[-1]:
-                            if syn < len(sense_embeddings):
-                                current_label += sense_embeddings[syn]
-                        current_label = current_label / len(word[-1])
-                    else:
-                        current_label = np.zeros(len(synset2id), dtype=int)
-                        current_label[word[-1]] = 1
+                    for syn in word[-1]:
+                        if syn < len(sense_embeddings):
+                            current_label += sense_embeddings[syn]
+                    current_label = current_label / len(word[-1])
                 elif wsd_method == "fullsoftmax":
                     current_label = np.zeros(len(synset2id), dtype=float)
                     for syn in word[-1]:

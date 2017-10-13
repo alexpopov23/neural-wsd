@@ -171,33 +171,36 @@ class ModelVectorSimilarity:
                     rnn_outputs = []
                     #texts = tf.unstack(embedded_inputs)
                     for i, text in enumerate(embedded_inputs):
-                        t_rnn_outputs = []
-                        t_output_states = []
-                        zero_state = tf.zeros(dtype=tf.float32, shape=[n_hidden])
-                        output_state_old = [tf.nn.rnn_cell.LSTMStateTuple(copy(zero_state),
-                                                                          copy(zero_state)),
-                                            tf.nn.rnn_cell.LSTMStateTuple(copy(zero_state),
-                                                                          copy(zero_state))]
+                        #t_rnn_outputs = []
+                        #t_output_states = []
+                        zero_state = tf.zeros(dtype=tf.float32, shape=[1, n_hidden])
+                        output_state_old = ((tf.nn.rnn_cell.LSTMStateTuple(copy(zero_state), copy(zero_state)),),
+                                            (tf.nn.rnn_cell.LSTMStateTuple(copy(zero_state), copy(zero_state)),))
                         #output_state_old = [tf.zeros(dtype=tf.float32, shape=[n_hidden])] * 2
                         sents = tf.unstack(text)
                         for j, sent in enumerate(sents):
                             rnn_output, output_state_new = tf.nn.bidirectional_dynamic_rnn(fw_multicell,
                                                                                  bw_multicell,
-                                                                                 sent,
+                                                                                 tf.reshape(sent, [1, seq_width, word_embedding_dim]),
                                                                                  dtype="float32",
-                                                                                 sequence_length=seq_lengths[i][j],
+                                                                                 sequence_length=tf.reshape(seq_lengths[i][j],[1]),
                                                                                  initial_state_fw=output_state_old[0],
                                                                                  initial_state_bw=output_state_old[1])
-                            t_rnn_outputs.append(rnn_output)
-                            t_output_states.append(output_state_new)
+                            rnn_output = tf.concat([rnn_output[0],rnn_output[1]], axis=-1)
+                            rnn_outputs.append(rnn_output)
+                            output_states.append(output_state_new)
+                            # t_rnn_outputs.append(rnn_output)
+                            # t_output_states.append(output_state_new)
                             output_state_old = output_state_new
-                        rnn_outputs.append(tf.stack(t_rnn_outputs))
-                        output_states.append(tf.stack(t_output_states))
-                    rnn_outputs = tf.stack(rnn_outputs)
-                    output_states = tf.stack(output_states)
+                        # rnn_outputs.append(tf.stack(t_rnn_outputs))
+                        # output_states.append(tf.stack(t_output_states))
+                    # rnn_outputs = tf.stack(rnn_outputs)
+                    # output_states = tf.stack(output_states)
+                    # rnn_outputs = tf.concat(rnn_outputs, axis=-1)
+                    # output_states = tf.concat(output_states, axis=-1)
 
                 rnn_outputs = tf.concat(rnn_outputs, -1)
-                output_states = tf.concat(output_states, -1)
+                #output_states = tf.concat(output_states, -1)
                 scope.reuse_variables()
                 rnn_outputs = tf.reshape(rnn_outputs, [-1, 2*n_hidden])
                 target_outputs = tf.gather(rnn_outputs, indices)
@@ -243,18 +246,23 @@ def run_epoch(session, model, data, keep_prob, mode):
         labels = data[3]
         words_to_disambiguate = data[4]
         indices = data[5]
+        initial_states = data[6]
         feed_dict = { model.train_inputs : inputs,
                       model.train_seq_lengths : seq_lengths,
                       model.train_model_flags : words_to_disambiguate,
                       model.train_indices : indices,
                       model.train_labels : labels,
-                      model.keep_prob : keep_prob}
+                      model.keep_prob : keep_prob,
+                      model.train_contexts_fw_c: initial_states[0][0][0],
+                      model.train_contexts_fw_h: initial_states[0][0][1],
+                      model.train_contexts_bw_c: initial_states[1][0][0],
+                      model.train_contexts_bw_h: initial_states[1][0][1]}
         if len(input_lemmas) > 0:
             feed_dict.update({model.train_inputs_lemmas : input_lemmas})
     if mode == "train":
-        ops = [model.train_op, model.cost, model.logits]
+        ops = [model.train_op, model.cost, model.logits, model.contexts]
     elif mode == "val":
-        ops = [model.train_op, model.cost, model.logits, model.val_logits]
+        ops = [model.train_op, model.cost, model.logits, model.val_logits, model.contexts]
     elif mode == "application":
         ops = [model.val_logits]
     fetches = session.run(ops, feed_dict=feed_dict)
@@ -525,11 +533,11 @@ if __name__ == "__main__":
         return (100.0 * matching_cases) / eval_cases
 
     # Create a new batch from the training data (data, labels and sequence lengths)
-    def new_batch (offset):
+    def format_batch (batch):
 
-        batch = data[offset:(offset+batch_size)]
+        #batch = data[offset:(offset+batch_size)]
         inputs, input_lemmas, seq_lengths, labels, words_to_disambiguate, indices, lemmas, synsets_gold = \
-            data_ops.format_data(wsd_method, batch, src2id, src2id_lemmas, synset2id, seq_width,
+            data_ops_contextual.format_data(wsd_method, batch, src2id, src2id_lemmas, synset2id, seq_width,
                                  word_embedding_case, word_embedding_input, sense_embeddings, dropword)
         return inputs, input_lemmas, seq_lengths, labels, words_to_disambiguate, indices, lemmas, synsets_gold
 
@@ -587,13 +595,16 @@ if __name__ == "__main__":
         os.makedirs(args.save_path)
     results = open(os.path.join(args.save_path, 'results.txt'), "a", 0)
     results.write(str(args) + '\n\n')
+    batch = data_ops_contextual.get_contextual_training_batch(data, training_iters, batch_size)
+    initial_state = np.zeros((batch_size, n_hidden))
+    initial_states = [[(copy(initial_state), copy(initial_state))], [(copy(initial_state), copy(initial_state))]]
     for step in range(training_iters):
-        offset = (step * batch_size) % (len(data) - batch_size)
-        inputs, input_lemmas, seq_lengths, labels, words_to_disambiguate, indices, lemmas_to_disambiguate, synsets_gold = new_batch(offset)
+        # offset = (step * batch_size) % (len(data) - batch_size)
+        inputs, input_lemmas, seq_lengths, labels, words_to_disambiguate, indices, lemmas_to_disambiguate, \
+        synsets_gold = format_batch(next(batch))
         if (len(labels) == 0):
             continue
-        input_data = [inputs, input_lemmas, seq_lengths, labels, words_to_disambiguate, indices]
-
+        input_data = [inputs, input_lemmas, seq_lengths, labels, words_to_disambiguate, indices, initial_states]
         val_accuracy = 0.0
         if (step % 100 == 0):
             print "Step number " + str(step)
@@ -612,10 +623,12 @@ if __name__ == "__main__":
                 results.write('Validation accuracy: ' + val_accuracy + '\n')
             print "Validation accuracy: " + str(val_accuracy)
             batch_loss = 0.0
+            initial_states = fetches[4]
         else:
             fetches = run_epoch(session, model, input_data, keep_prob, mode="train")
             if (fetches[1] is not None):
                 batch_loss += fetches[1]
+            initial_states = fetches[3]
 
         if val_accuracy > best_accuracy:
             best_accuracy = val_accuracy

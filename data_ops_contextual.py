@@ -208,7 +208,7 @@ class TextObject:
 
     def incrementCount(self):
 
-        if self.counter == self.length:
+        if self.counter == self.length - 1:
             self.counter = 0
             self.hasFinished = True
         else:
@@ -218,7 +218,9 @@ class TextObject:
 
     def getSentence(self):
 
-        return self.sentences[self.counter]
+        counter = self.counter
+        self.incrementCount()
+        return self.sentences[counter]
 
     def checkIfFinished(self):
 
@@ -471,18 +473,22 @@ def format_data_val (wsd_method, input_data, src2id, src2id_lemmas, synset2id, s
 
 def get_contextual_training_batch (data, iterations, batch_size):
 
-    list = deque(data[:batch_size])
-    queue = deque(data[batch_size:])
+    list = data[:batch_size]
+    queue = deque(data[batch_size:], maxlen=(len(data) - batch_size))
     for i in range(iterations):
         batch = []
+        states = []
         for j in range(batch_size):
             current_text = list[j]
             current_sent = current_text.getSentence()
             batch.append(current_sent)
-            if current_text.checkIfFinished() == True:
-                list.append(queue.popleft())
-                queue.append(list.pop(j))
-        yield batch
+            status = current_text.checkIfFinished()
+            states.append(status)
+            if status == True:
+                new_text = queue.popleft()
+                queue.append(list[j])
+                list[j] = new_text
+        yield batch, states
 
 def format_data (wsd_method, input_data, src2id, src2id_lemmas, synset2id, seq_width, word_embedding_case,
                  word_embedding_input, sense_embeddings=None, dropword=0.0):

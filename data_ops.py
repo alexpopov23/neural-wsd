@@ -379,14 +379,14 @@ def format_data (wsd_method, input_data, src2id, src2id_lemmas, synset2id, seq_w
                 current_label = np.zeros([300], dtype=float)
                 if wsd_method == "similarity":
                     # TODO fix the handling of lists of synsets, like in fullmax case
-                    if sense_embeddings != None:
-                        for syn in word[-1]:
-                            if syn < len(sense_embeddings):
-                                current_label += sense_embeddings[syn]
-                        current_label = current_label / len(word[-1])
-                    else:
-                        current_label = np.zeros(len(synset2id), dtype=int)
-                        current_label[word[-1]] = 1
+                    #if sense_embeddings != None:
+                    for syn in word[-1]:
+                        if syn < len(sense_embeddings):
+                            current_label += sense_embeddings[syn]
+                    current_label = current_label / len(word[-1])
+                    # else:
+                    #     current_label = np.zeros(len(synset2id), dtype=int)
+                    #     current_label[word[-1]] = 1
                 elif wsd_method == "fullsoftmax":
                     current_label = np.zeros(len(synset2id), dtype=float)
                     for syn in word[-1]:

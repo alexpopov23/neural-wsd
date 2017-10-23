@@ -2,7 +2,6 @@ import argparse
 import sys
 import pickle
 import os
-import collections
 import random
 
 import tensorflow as tf
@@ -164,28 +163,30 @@ class ModelVectorSimilarity:
                                                                                  bw_multicell,
                                                                                  embedded_inputs,
                                                                                  dtype="float32",
-                                                                                 sequence_length=seq_lengths,
-                                                                                 initial_state_fw=(contexts_fw,),
-                                                                                 initial_state_bw=(contexts_bw,))
+                                                                                 sequence_length=seq_lengths)
+                                                                                 # initial_state_fw=(contexts_fw,),
+                                                                                 # initial_state_bw=(contexts_bw,))
                 else:
                     rnn_outputs = []
                     #texts = tf.unstack(embedded_inputs)
                     for i, text in enumerate(embedded_inputs):
                         #t_rnn_outputs = []
                         #t_output_states = []
-                        zero_state = tf.zeros(dtype=tf.float32, shape=[1, n_hidden])
-                        output_state_old = ((tf.nn.rnn_cell.LSTMStateTuple(copy(zero_state), copy(zero_state)),),
-                                            (tf.nn.rnn_cell.LSTMStateTuple(copy(zero_state), copy(zero_state)),))
+                        # zero_state = tf.zeros(dtype=tf.float32, shape=[1, n_hidden])
+                        # output_state_old = ((tf.nn.rnn_cell.LSTMStateTuple(copy(zero_state), copy(zero_state)),),
+                        #                     (tf.nn.rnn_cell.LSTMStateTuple(copy(zero_state), copy(zero_state)),))
                         #output_state_old = [tf.zeros(dtype=tf.float32, shape=[n_hidden])] * 2
+                        output_state_old = ((fw_multicell.zero_state(1, tf.float32),),
+                                            (bw_multicell.zero_state(1, tf.float32)))
                         sents = tf.unstack(text)
                         for j, sent in enumerate(sents):
                             rnn_output, output_state_new = tf.nn.bidirectional_dynamic_rnn(fw_multicell,
                                                                                  bw_multicell,
                                                                                  tf.reshape(sent, [1, seq_width, word_embedding_dim]),
                                                                                  dtype="float32",
-                                                                                 sequence_length=tf.reshape(seq_lengths[i][j],[1]),
-                                                                                 initial_state_fw=output_state_old[0],
-                                                                                 initial_state_bw=output_state_old[1])
+                                                                                 sequence_length=tf.reshape(seq_lengths[i][j],[1]))
+                                                                                 # initial_state_fw=output_state_old[0],
+                                                                                 # initial_state_bw=output_state_old[1])
                             rnn_output = tf.concat([rnn_output[0],rnn_output[1]], axis=-1)
                             rnn_outputs.append(rnn_output)
                             output_states.append(output_state_new)
@@ -208,9 +209,9 @@ class ModelVectorSimilarity:
                 losses = (labels - output_emb) ** 2
                 cost = tf.reduce_mean(losses)
 
-            return cost, output_emb, output_states
+            return cost, output_emb, output_states, rnn_outputs
 
-        self.cost, self.logits, self.contexts = biRNN_WSD(self.train_inputs,
+        self.cost, self.logits, self.contexts, self.rnn_outputs = biRNN_WSD(self.train_inputs,
                                                           self.train_seq_lengths,
                                                           self.train_indices,
                                                           self.embeddings,
@@ -225,7 +226,7 @@ class ModelVectorSimilarity:
                                                           self.keep_prob)
         self.train_op = tf.train.GradientDescentOptimizer(learning_rate).minimize(self.cost)
         tf.get_variable_scope().reuse_variables()
-        _, self.val_logits, _ = biRNN_WSD(self.val_inputs,
+        _, self.val_logits, _, self.val_rnn_outputs = biRNN_WSD(self.val_inputs,
                                           self.val_seq_lengths,
                                           self.val_indices,
                                           self.embeddings,
@@ -260,9 +261,9 @@ def run_epoch(session, model, data, keep_prob, mode):
         if len(input_lemmas) > 0:
             feed_dict.update({model.train_inputs_lemmas : input_lemmas})
     if mode == "train":
-        ops = [model.train_op, model.cost, model.logits, model.contexts]
+        ops = [model.train_op, model.cost, model.logits, model.contexts, model.rnn_outputs]
     elif mode == "val":
-        ops = [model.train_op, model.cost, model.logits, model.val_logits, model.contexts]
+        ops = [model.train_op, model.cost, model.logits, model.val_logits, model.contexts, model.rnn_outputs, model.val_rnn_outputs]
     elif mode == "application":
         ops = [model.val_logits]
     fetches = session.run(ops, feed_dict=feed_dict)
@@ -596,12 +597,15 @@ if __name__ == "__main__":
     results = open(os.path.join(args.save_path, 'results.txt'), "a", 0)
     results.write(str(args) + '\n\n')
     batch = data_ops_contextual.get_contextual_training_batch(data, training_iters, batch_size)
-    initial_state = np.zeros((batch_size, n_hidden))
-    initial_states = [[(copy(initial_state), copy(initial_state))], [(copy(initial_state), copy(initial_state))]]
+    single_zero_state = np.zeros(n_hidden)
+    batch_initial_state = np.zeros((batch_size, n_hidden))
+    initial_states = [[(copy(batch_initial_state), copy(batch_initial_state))],
+                      [(copy(batch_initial_state), copy(batch_initial_state))]]
     for step in range(training_iters):
         # offset = (step * batch_size) % (len(data) - batch_size)
+        new_data, new_states = next(batch)
         inputs, input_lemmas, seq_lengths, labels, words_to_disambiguate, indices, lemmas_to_disambiguate, \
-        synsets_gold = format_batch(next(batch))
+        synsets_gold = format_batch(new_data)
         if (len(labels) == 0):
             continue
         input_data = [inputs, input_lemmas, seq_lengths, labels, words_to_disambiguate, indices, initial_states]
@@ -614,13 +618,16 @@ if __name__ == "__main__":
             results.write('EPOCH: %d' % step + '\n')
             results.write('Averaged minibatch loss at step ' + str(step) + ': ' + str(batch_loss/100.0) + '\n')
             if wsd_method == "similarity":
+                minibatch_accuracy = str(accuracy_cosine_distance(fetches[2], lemmas_to_disambiguate, synsets_gold))
                 val_accuracy = str(accuracy_cosine_distance(fetches[3], val_lemmas_to_disambiguate, val_synsets_gold))
-                results.write('Minibatch accuracy: ' + str(accuracy_cosine_distance(fetches[2], lemmas_to_disambiguate, synsets_gold)) + '\n')
+                results.write('Minibatch accuracy: ' + minibatch_accuracy + '\n')
                 results.write('Validation accuracy: ' + val_accuracy + '\n')
             elif wsd_method == "fullsoftmax":
+                minibatch_accuracy = str(accuracy(fetches[2], lemmas_to_disambiguate, synsets_gold))
                 val_accuracy = str(accuracy(fetches[3], val_lemmas_to_disambiguate, val_synsets_gold))
-                results.write('Minibatch accuracy: ' + str(accuracy(fetches[2], lemmas_to_disambiguate, synsets_gold)) + '\n')
+                results.write('Minibatch accuracy: ' +  minibatch_accuracy + '\n')
                 results.write('Validation accuracy: ' + val_accuracy + '\n')
+            print "Minibatch accuracy: " + str(minibatch_accuracy)
             print "Validation accuracy: " + str(val_accuracy)
             batch_loss = 0.0
             initial_states = fetches[4]
@@ -629,6 +636,13 @@ if __name__ == "__main__":
             if (fetches[1] is not None):
                 batch_loss += fetches[1]
             initial_states = fetches[3]
+
+        for i, state in enumerate(new_states):
+            if state == True:
+                initial_states[0][0][0][i] = copy(single_zero_state)
+                initial_states[0][0][1][i] = copy(single_zero_state)
+                initial_states[1][0][0][i] = copy(single_zero_state)
+                initial_states[1][0][1][i] = copy(single_zero_state)
 
         if val_accuracy > best_accuracy:
             best_accuracy = val_accuracy

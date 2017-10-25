@@ -163,45 +163,38 @@ class ModelVectorSimilarity:
                                                                                  bw_multicell,
                                                                                  embedded_inputs,
                                                                                  dtype="float32",
-                                                                                 sequence_length=seq_lengths)
-                                                                                 # initial_state_fw=(contexts_fw,),
-                                                                                 # initial_state_bw=(contexts_bw,))
+                                                                                 sequence_length=seq_lengths,
+                                                                                 initial_state_fw=(contexts_fw,),
+                                                                                 initial_state_bw=(contexts_bw,))
                 else:
                     rnn_outputs = []
-                    #texts = tf.unstack(embedded_inputs)
                     for i, text in enumerate(embedded_inputs):
-                        #t_rnn_outputs = []
-                        #t_output_states = []
-                        # zero_state = tf.zeros(dtype=tf.float32, shape=[1, n_hidden])
-                        # output_state_old = ((tf.nn.rnn_cell.LSTMStateTuple(copy(zero_state), copy(zero_state)),),
-                        #                     (tf.nn.rnn_cell.LSTMStateTuple(copy(zero_state), copy(zero_state)),))
+                        zero_state = tf.zeros(dtype=tf.float32, shape=[1, n_hidden])
+                        output_state_old = ((tf.nn.rnn_cell.LSTMStateTuple(copy(zero_state), copy(zero_state)),),
+                                            (tf.nn.rnn_cell.LSTMStateTuple(copy(zero_state), copy(zero_state)),))
                         #output_state_old = [tf.zeros(dtype=tf.float32, shape=[n_hidden])] * 2
-                        output_state_old = ((fw_multicell.zero_state(1, tf.float32),),
-                                            (bw_multicell.zero_state(1, tf.float32)))
+                        # output_state_old = ((fw_multicell.zero_state(1, tf.float32),),
+                        #                     (bw_multicell.zero_state(1, tf.float32),))
                         sents = tf.unstack(text)
                         for j, sent in enumerate(sents):
                             rnn_output, output_state_new = tf.nn.bidirectional_dynamic_rnn(fw_multicell,
-                                                                                 bw_multicell,
-                                                                                 tf.reshape(sent, [1, seq_width, word_embedding_dim]),
-                                                                                 dtype="float32",
-                                                                                 sequence_length=tf.reshape(seq_lengths[i][j],[1]))
-                                                                                 # initial_state_fw=output_state_old[0],
-                                                                                 # initial_state_bw=output_state_old[1])
-                            rnn_output = tf.concat([rnn_output[0],rnn_output[1]], axis=-1)
-                            rnn_outputs.append(rnn_output)
+                                                                                           bw_multicell,
+                                                                                           tf.reshape(sent, [1, seq_width, word_embedding_dim]),
+                                                                                           dtype="float32",
+                                                                                           sequence_length=tf.reshape(seq_lengths[i][j],[1]),
+                                                                                           initial_state_fw=output_state_old[0],
+                                                                                           initial_state_bw=output_state_old[1])
+                            if i + j == 0:
+                                rnn_outputs.append([rnn_output[0]])
+                                rnn_outputs.append([rnn_output[1]])
+                            else:
+                                rnn_outputs[0].append(rnn_output[0])
+                                rnn_outputs[1].append(rnn_output[1])
                             output_states.append(output_state_new)
-                            # t_rnn_outputs.append(rnn_output)
-                            # t_output_states.append(output_state_new)
                             output_state_old = output_state_new
-                        # rnn_outputs.append(tf.stack(t_rnn_outputs))
-                        # output_states.append(tf.stack(t_output_states))
-                    # rnn_outputs = tf.stack(rnn_outputs)
-                    # output_states = tf.stack(output_states)
-                    # rnn_outputs = tf.concat(rnn_outputs, axis=-1)
-                    # output_states = tf.concat(output_states, axis=-1)
+                    rnn_outputs[0], rnn_outputs[1] = tf.stack(rnn_outputs[0]), tf.stack(rnn_outputs[1])
 
                 rnn_outputs = tf.concat(rnn_outputs, -1)
-                #output_states = tf.concat(output_states, -1)
                 scope.reuse_variables()
                 rnn_outputs = tf.reshape(rnn_outputs, [-1, 2*n_hidden])
                 target_outputs = tf.gather(rnn_outputs, indices)

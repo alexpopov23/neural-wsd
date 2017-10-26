@@ -366,6 +366,7 @@ def format_data (wsd_method, input_data, src2id, src2id_lemmas, synset2id, seq_w
                     else:
                         current_input_lemmas.append(src2id_lemmas["UNK"])
             elif word_embedding_input == "lemma":
+                # test
                 if word[1] in src2id:
                     current_input.append(src2id[word[1]])
                 else:

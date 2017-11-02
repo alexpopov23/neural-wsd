@@ -28,3 +28,6 @@ lowercased
 /home/lenovo/dev/neural-wsd/data/wsd_corpora-master/semcor3.0/all
 -test_data
 /home/lenovo/dev/neural-wsd/data/wsd_corpora-master/senseval2/
+
+# example command
+nohup python neural_wsd_contextual.py -data_source uniroma -wsd_method similarity -word_embedding_method gensim -word_embedding_input lemma -joint_embedding True -word_embedding_src_path /userdata/embeddings-models/WN30WN30glConOne_synsets_100M.bin -word_embedding_dim 300 -word_embedding_case lowercase -sense_embeddings_src_path /userdata/embeddings-models/WN30WN30glConOne_synsets_100M.bin -learning_rate 0.2 -training_iterations 100001 -batch_size 100 -n_hidden 400 -n_hidden_layers 1 -sequence_width 63 -training_data /home/apopov/dev/neural-wsd/data/UnivRomaData/WSD_Training_Corpora/SemCor/ -test_data /home/apopov/dev/neural-wsd/data/UnivRomaData/WSD_Unified_Evaluation_Datasets/senseval2/ -lexicon /userdata/ukb_wsd/lkb_sources/wn30.lex -lexicon_mode full_dictionary -save_path /home/apopov/dev/neural-wsd/experiments/20171014_0/ > ../experiments/20171014_0.txt &

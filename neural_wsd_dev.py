@@ -145,7 +145,7 @@ class ModelVectorSimilarity:
 
             return embedded_inputs
 
-        def biRNN_WSD (inputs, seq_lengths, indices, embeddings, weights, biases, labels, is_training, keep_prob=1.0):
+        def biRNN_WSD (embedded_inputs, seq_lengths, indices, weights, biases, labels, is_training, keep_prob=1.0):
 
             with tf.variable_scope(tf.get_variable_scope()) as scope:
 
@@ -163,7 +163,6 @@ class ModelVectorSimilarity:
                 if is_training:
                     bw_cell = tf.contrib.rnn.DropoutWrapper(bw_cell, input_keep_prob=keep_prob, output_keep_prob=keep_prob,)
                 bw_multicell = tf.contrib.rnn.MultiRNNCell([bw_cell] * n_hidden_layers)
-                embedded_inputs = tf.nn.embedding_lookup(embeddings, inputs)
                 # Get the blstm cell output
                 rnn_outputs, _ = tf.nn.bidirectional_dynamic_rnn(fw_multicell, bw_multicell, embedded_inputs, dtype="float32",
                                                                  sequence_length=seq_lengths)
@@ -183,7 +182,7 @@ class ModelVectorSimilarity:
             embedded_inputs = embed_inputs(self.train_inputs_lemmas, self.train_inputs)
         else:
             embedded_inputs = embed_inputs(self.train_inputs_lemmas)
-        self.cost, self.logits = biRNN_WSD(embedded_inputs, self.train_seq_lengths, self.train_indices, self.embeddings,
+        self.cost, self.logits = biRNN_WSD(embedded_inputs, self.train_seq_lengths, self.train_indices,
                                            self.weights, self.biases, self.train_labels, True, self.keep_prob)
         self.train_op = tf.train.GradientDescentOptimizer(learning_rate).minimize(self.cost)
         if vocab_size_lemmas > 0:
@@ -192,7 +191,7 @@ class ModelVectorSimilarity:
             embedded_inputs = embed_inputs(self.val_inputs_lemmas)
         tf.get_variable_scope().reuse_variables()
         _, self.val_logits = biRNN_WSD(embedded_inputs, self.val_seq_lengths, self.val_indices,
-                                       self.embeddings, self.weights, self.biases, self.val_labels, False)
+                                       self.weights, self.biases, self.val_labels, False)
 
 def run_epoch(session, model, data, keep_prob, mode):
 
@@ -365,6 +364,7 @@ if __name__ == "__main__":
     n_hidden_layers = int(args.n_hidden_layers) # Number of features/neurons in the hidden layer
     embedding_size = word_embedding_dim
     vocab_size = len(src2id)
+    vocab_size_lemmas = len(src2id_lemmas)
     lexicon_mode = args.lexicon_mode
     lexicon = args.lexicon
     partition_point = float(args.partition_point)
@@ -499,12 +499,14 @@ if __name__ == "__main__":
 
     model = None
     if wsd_method == "similarity":
-        model = ModelVectorSimilarity(word_embedding_dim, vocab_size, batch_size, seq_width, n_hidden, val_inputs,
-                                      val_seq_lengths, val_words_to_disambiguate, val_indices, val_labels)
+        model = ModelVectorSimilarity(lemma_embedding_dim, vocab_size_lemmas, batch_size, seq_width, n_hidden, val_inputs,
+                                      val_seq_lengths, val_words_to_disambiguate, val_indices, val_labels,
+                                      word_embedding_dim, vocab_size)
     elif wsd_method == "fullsoftmax":
         model = ModelSingleSoftmax(synset2id, word_embedding_dim, vocab_size, batch_size, seq_width, n_hidden,
                                    n_hidden_layers, val_inputs, val_input_lemmas, val_seq_lengths, val_words_to_disambiguate,
                                    val_indices, val_labels, lemma_embedding_dim, len(src2id_lemmas))
+
     session = tf.Session()
     saver = tf.train.Saver()
     #session.run(tf.global_variables_initializer())
@@ -534,7 +536,11 @@ if __name__ == "__main__":
     else:
         init = tf.initialize_all_variables()
         if wsd_method == "similarity":
-            session.run(init, feed_dict={model.emb_placeholder: word_embeddings, model.place: val_labels})
+            feed_dict = {model.emb_placeholder_lemmas: lemma_embeddings, model.place: val_labels}
+            if len(word_embeddings) != None:
+                feed_dict.update({model.emb_placeholder: word_embeddings})
+            session.run(init, feed_dict=feed_dict)
+
         elif wsd_method == "fullsoftmax":
             if len(lemma_embeddings) > 0:
                 session.run(init, feed_dict={model.emb_placeholder: word_embeddings, model.emb_placeholder_lemmas: lemma_embeddings,

@@ -348,7 +348,7 @@ def format_data (wsd_method, input_data, src2id, src2id_lemmas, synset2id, seq_w
             if word[4][0] > -1:
                 current_flag = True
             # Change depending on whether lemma or wordform is used
-            if word_embedding_input == "wordform":
+            if word_embedding_input == "joint":
                 if word_embedding_case == "lowercase":
                     if word[0].lower() in src2id:
                         current_input.append(src2id[word[0].lower()])
@@ -359,12 +359,27 @@ def format_data (wsd_method, input_data, src2id, src2id_lemmas, synset2id, seq_w
                         current_input.append(src2id[word[0]])
                     else:
                         current_input.append(src2id["UNK"])
-                # Changed 'word[0]' to 'word[1]' --> check difference in results
-                if len(src2id_lemmas) > 0:
-                    if word[1].lower() in src2id_lemmas:
-                        current_input_lemmas.append(src2id_lemmas[word[1].lower()])
+                if word[1].lower() in src2id_lemmas:
+                    current_input_lemmas.append(src2id_lemmas[word[1].lower()])
+                else:
+                    current_input_lemmas.append(src2id_lemmas["UNK"])
+            elif word_embedding_input == "wordform":
+                if word_embedding_case == "lowercase":
+                    if word[0].lower() in src2id:
+                        current_input.append(src2id[word[0].lower()])
                     else:
-                        current_input_lemmas.append(src2id_lemmas["UNK"])
+                        current_input.append(src2id["UNK"])
+                elif word_embedding_case == "mixedcase":
+                    if word[0] in src2id:
+                        current_input.append(src2id[word[0]])
+                    else:
+                        current_input.append(src2id["UNK"])
+                # # Changed 'word[0]' to 'word[1]' --> check difference in results
+                # if len(src2id_lemmas) > 0:
+                #     if word[1].lower() in src2id_lemmas:
+                #         current_input_lemmas.append(src2id_lemmas[word[1].lower()])
+                #     else:
+                #         current_input_lemmas.append(src2id_lemmas["UNK"])
             elif word_embedding_input == "lemma":
                 # test
                 if word[1] in src2id:

@@ -106,26 +106,44 @@ class ModelSingleSoftmax:
 class ModelVectorSimilarity:
 
     #TODO make model work with batches (no reason not to use them before the WSD part, I think)
-    def __init__(self, word_embedding_dim, vocab_size, batch_size, seq_width, n_hidden, val_inputs, val_seq_lengths,
-                 val_flags, val_indices, val_labels):
-        self.emb_placeholder = tf.placeholder(tf.float32, shape=[vocab_size, word_embedding_dim])
-        self.embeddings = tf.Variable(self.emb_placeholder)
-        self.set_embeddings = tf.assign(self.embeddings, self.emb_placeholder, validate_shape=False)
+    def __init__(self, lemma_embedding_dim, vocab_size_lemmas, batch_size, seq_width, n_hidden, val_inputs, val_seq_lengths,
+                 val_flags, val_indices, val_labels, word_embedding_dim, vocab_size_wordforms):
+
+        self.emb_placeholder_lemmas = tf.placeholder(tf.float32, shape=[vocab_size_lemmas, lemma_embedding_dim])
+        self.embeddings_lemmas = tf.Variable(self.emb_placeholder_lemmas)
+        self.set_embeddings_lemmas = tf.assign(self.embeddings_lemmas, self.emb_placeholder_lemmas,
+                                               validate_shape=False)
+        if vocab_size_wordforms > 0:
+            self.emb_placeholder = tf.placeholder(tf.float32, shape=[vocab_size_wordforms, word_embedding_dim])
+            self.embeddings = tf.Variable(self.emb_placeholder)
+            self.set_embeddings = tf.assign(self.embeddings, self.emb_placeholder, validate_shape=False)
         #TODO pick an initializer
-        self.weights = tf.get_variable(name="w", shape=[2*n_hidden, word_embedding_dim], dtype=tf.float32)
-        self.biases = tf.get_variable(name="b", shape=[word_embedding_dim], dtype=tf.float32)
+        self.weights = tf.get_variable(name="w", shape=[2*n_hidden, lemma_embedding_dim], dtype=tf.float32)
+        self.biases = tf.get_variable(name="b", shape=[lemma_embedding_dim], dtype=tf.float32)
         self.train_inputs = tf.placeholder(tf.int32, shape=[batch_size, seq_width])
+        self.train_inputs_lemmas = tf.placeholder(tf.int32, shape=[batch_size, seq_width])
         self.train_seq_lengths = tf.placeholder(tf.int32, shape=[batch_size])
         self.train_model_flags = tf.placeholder(tf.bool, shape=[batch_size, seq_width])
-        self.train_labels = tf.placeholder(tf.float32, shape=[None, word_embedding_dim])
+        self.train_labels = tf.placeholder(tf.float32, shape=[None, lemma_embedding_dim])
         self.train_indices = tf.placeholder(tf.int32, shape=[None])
         self.val_inputs = tf.constant(val_inputs, tf.int32)
+        if vocab_size_lemmas > 0:
+            self.val_inputs_lemmas = tf.constant(val_input_lemmas, tf.int32)
         self.val_seq_lengths = tf.constant(val_seq_lengths, tf.int32)
         self.val_flags = tf.constant(val_flags, tf.bool)
         self.place = tf.placeholder(tf.float32, shape=val_labels.shape)
         self.val_labels = tf.Variable(self.place)
         self.val_indices = tf.constant(val_indices, tf.int32)
         self.keep_prob = tf.placeholder(tf.float32)
+
+        def embed_inputs (input_lemmas, input_wordforms=None):
+
+            embedded_inputs = tf.nn.embedding_lookup(self.embeddings_lemmas, input_lemmas)
+            if input_wordforms != None:
+                embedded_inputs_wordforms = tf.nn.embedding_lookup(self.embeddings, input_wordforms)
+                embedded_inputs = tf.concat([embedded_inputs, embedded_inputs_wordforms], 2)
+
+            return embedded_inputs
 
         def biRNN_WSD (inputs, seq_lengths, indices, embeddings, weights, biases, labels, is_training, keep_prob=1.0):
 
@@ -159,11 +177,21 @@ class ModelVectorSimilarity:
 
             return cost, output_emb
 
-        self.cost, self.logits = biRNN_WSD(self.train_inputs, self.train_seq_lengths, self.train_indices, self.embeddings,
+
+        # if lemma embeddings are passed, then concatenate them with the word embeddings
+        if vocab_size > 0:
+            embedded_inputs = embed_inputs(self.train_inputs_lemmas, self.train_inputs)
+        else:
+            embedded_inputs = embed_inputs(self.train_inputs_lemmas)
+        self.cost, self.logits = biRNN_WSD(embedded_inputs, self.train_seq_lengths, self.train_indices, self.embeddings,
                                            self.weights, self.biases, self.train_labels, True, self.keep_prob)
         self.train_op = tf.train.GradientDescentOptimizer(learning_rate).minimize(self.cost)
+        if vocab_size_lemmas > 0:
+            embedded_inputs = embed_inputs(self.val_inputs_lemmas, self.val_inputs)
+        else:
+            embedded_inputs = embed_inputs(self.val_inputs_lemmas)
         tf.get_variable_scope().reuse_variables()
-        _, self.val_logits = biRNN_WSD(self.val_inputs, self.val_seq_lengths, self.val_indices,
+        _, self.val_logits = biRNN_WSD(embedded_inputs, self.val_seq_lengths, self.val_indices,
                                        self.embeddings, self.weights, self.biases, self.val_labels, False)
 
 def run_epoch(session, model, data, keep_prob, mode):
@@ -309,7 +337,7 @@ if __name__ == "__main__":
         word_embeddings = np.asarray(word_embeddings)
         src2id["UNK"] = src2id["unk"]
         del src2id["unk"]
-    if "UNK" not in src2id:
+    if src2id != None and "UNK" not in src2id:
         #TODO use a random distribution rather
         unk = np.zeros(word_embedding_dim)
         src2id["UNK"] = len(src2id)
@@ -374,7 +402,10 @@ if __name__ == "__main__":
     # get synset embeddings if a path to a model is passed
     if sense_embeddings_src_path != "None":
         if joint_embedding == "True":
-            sense_embeddings_model = word_embeddings_model
+            if lemma_embeddings_src_path != "None":
+                sense_embeddings_model = lemma_embeddings_model
+            else:
+                sense_embeddings_model = word_embeddings_model
         else:
             sense_embeddings_model = KeyedVectors.load_word2vec_format(sense_embeddings_src_path, binary=False)
         sense_embeddings_full = sense_embeddings_model.syn0

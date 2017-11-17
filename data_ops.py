@@ -320,7 +320,7 @@ def read_data_uniroma (path, sensekey2synset, lemma2synsets={}, lemma2id={}, syn
 
 
 def format_data (wsd_method, input_data, src2id, src2id_lemmas, synset2id, seq_width, word_embedding_case,
-                 word_embedding_input, sense_embeddings=None, dropword=0.0):
+                 word_embedding_input, sense_embeddings=None, dropword=0.0, mode="training"):
 
     inputs = []
     inputs_lemmas = []
@@ -400,6 +400,11 @@ def format_data (wsd_method, input_data, src2id, src2id_lemmas, synset2id, seq_w
                         if syn < len(sense_embeddings):
                             current_label += sense_embeddings[syn]
                     current_label = current_label / len(word[-1])
+                    # In case no non-zero embedding is found for the synset, don't include it in the training data
+                    if mode == "training" and np.amax(current_label) == 0.0:
+                        ind_count += 1
+                        current_wtd.append(False)
+                        continue
                     # else:
                     #     current_label = np.zeros(len(synset2id), dtype=int)
                     #     current_label[word[-1]] = 1
@@ -417,17 +422,23 @@ def format_data (wsd_method, input_data, src2id, src2id_lemmas, synset2id, seq_w
             ind_count += 1
 
         current_wtd += (seq_width - len(current_wtd)) * [False]
-        seq_lengths.append(len(current_input))
+        if word_embedding_input == "wordform":
+            seq_lengths.append(len(current_input))
+        if word_embedding_input == "lemma":
+            seq_lengths.append(len(current_input_lemmas))
         if (len(current_input) < seq_width):
             ind_count += seq_width - len(current_input)
             # changed [0] to [-1], should have no effect, but do check
-            current_input += (seq_width - len(current_input)) * [src2id["UNK"]]
+            if len(src2id) > 0:
+                current_input += (seq_width - len(current_input)) * [src2id["UNK"]]
             if len(src2id_lemmas) > 0:
                 current_input_lemmas += (seq_width - len(current_input_lemmas)) * [src2id_lemmas["UNK"]]
-        current_input = np.asarray(current_input)
+        if len(src2id) > 0:
+            current_input = np.asarray(current_input)
         if len(src2id_lemmas) > 0:
             current_input_lemmas = np.asarray(current_input_lemmas)
-        inputs.append(current_input)
+        if len(src2id) > 0:
+            inputs.append(current_input)
         if len(src2id_lemmas) > 0:
             inputs_lemmas.append(current_input_lemmas)
         # extend results in a 2-d tensor where sentences are concatenated; append results in a 3-d tensor

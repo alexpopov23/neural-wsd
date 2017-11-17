@@ -85,14 +85,14 @@ class ModelSingleSoftmax:
                 losses = tf.nn.softmax_cross_entropy_with_logits(logits=logits, labels=labels)
                 cost = tf.reduce_mean(losses)
 
-            return cost, logits
+            return cost, logits, losses
 
         # if lemma embeddings are passed, then concatenate them with the word embeddings
         if vocab_size_lemmas > 0:
             embedded_inputs = embed_inputs(self.train_inputs, self.train_inputs_lemmas)
         else:
             embedded_inputs = embed_inputs(self.train_inputs)
-        self.cost, self.logits = biRNN_WSD(embedded_inputs, self.train_seq_lengths, self.train_indices,
+        self.cost, self.logits, self.losses = biRNN_WSD(embedded_inputs, self.train_seq_lengths, self.train_indices,
                                            self.weights, self.biases, self.train_labels, True, self.keep_prob)
         self.train_op = tf.train.GradientDescentOptimizer(learning_rate).minimize(self.cost)
         if vocab_size_lemmas > 0:
@@ -100,19 +100,20 @@ class ModelSingleSoftmax:
         else:
             embedded_inputs = embed_inputs(self.val_inputs)
         tf.get_variable_scope().reuse_variables()
-        _, self.val_logits = biRNN_WSD(embedded_inputs, self.val_seq_lengths, self.val_indices,
+        _, self.val_logits, _ = biRNN_WSD(embedded_inputs, self.val_seq_lengths, self.val_indices,
                                        self.weights, self.biases, self.val_labels, False, 1.0)
 
 class ModelVectorSimilarity:
 
     #TODO make model work with batches (no reason not to use them before the WSD part, I think)
-    def __init__(self, lemma_embedding_dim, vocab_size_lemmas, batch_size, seq_width, n_hidden, val_inputs, val_seq_lengths,
+    def __init__(self, input_mode, lemma_embedding_dim, vocab_size_lemmas, batch_size, seq_width, n_hidden, val_inputs, val_seq_lengths,
                  val_flags, val_indices, val_labels, word_embedding_dim, vocab_size_wordforms):
 
-        self.emb_placeholder_lemmas = tf.placeholder(tf.float32, shape=[vocab_size_lemmas, lemma_embedding_dim])
-        self.embeddings_lemmas = tf.Variable(self.emb_placeholder_lemmas)
-        self.set_embeddings_lemmas = tf.assign(self.embeddings_lemmas, self.emb_placeholder_lemmas,
-                                               validate_shape=False)
+        if vocab_size_lemmas > 0:
+            self.emb_placeholder_lemmas = tf.placeholder(tf.float32, shape=[vocab_size_lemmas, lemma_embedding_dim])
+            self.embeddings_lemmas = tf.Variable(self.emb_placeholder_lemmas)
+            self.set_embeddings_lemmas = tf.assign(self.embeddings_lemmas, self.emb_placeholder_lemmas,
+                                                   validate_shape=False)
         if vocab_size_wordforms > 0:
             self.emb_placeholder = tf.placeholder(tf.float32, shape=[vocab_size_wordforms, word_embedding_dim])
             self.embeddings = tf.Variable(self.emb_placeholder)
@@ -126,7 +127,8 @@ class ModelVectorSimilarity:
         self.train_model_flags = tf.placeholder(tf.bool, shape=[batch_size, seq_width])
         self.train_labels = tf.placeholder(tf.float32, shape=[None, lemma_embedding_dim])
         self.train_indices = tf.placeholder(tf.int32, shape=[None])
-        self.val_inputs = tf.constant(val_inputs, tf.int32)
+        if vocab_size > 0:
+            self.val_inputs = tf.constant(val_inputs, tf.int32)
         if vocab_size_lemmas > 0:
             self.val_inputs_lemmas = tf.constant(val_input_lemmas, tf.int32)
         self.val_seq_lengths = tf.constant(val_seq_lengths, tf.int32)
@@ -136,11 +138,18 @@ class ModelVectorSimilarity:
         self.val_indices = tf.constant(val_indices, tf.int32)
         self.keep_prob = tf.placeholder(tf.float32)
 
-        def embed_inputs (input_lemmas, input_wordforms=None):
+        def embed_inputs (inputs, inputs_optional=None):
 
-            embedded_inputs = tf.nn.embedding_lookup(self.embeddings_lemmas, input_lemmas)
-            if input_wordforms != None:
-                embedded_inputs_wordforms = tf.nn.embedding_lookup(self.embeddings, input_wordforms)
+            if input_mode == "joint":
+                embeddings1 = self.embeddings_lemmas
+                embeddings2 = self.embeddings
+            elif input_mode == "wordform":
+                embeddings1 = self.embeddings
+            elif input_mode == "lemma":
+                embeddings1 = self.embeddings_lemmas
+            embedded_inputs = tf.nn.embedding_lookup(embeddings1, inputs)
+            if input_mode == "joint":
+                embedded_inputs_wordforms = tf.nn.embedding_lookup(embeddings2, inputs_optional)
                 embedded_inputs = tf.concat([embedded_inputs, embedded_inputs_wordforms], 2)
 
             return embedded_inputs
@@ -178,17 +187,22 @@ class ModelVectorSimilarity:
 
 
         # if lemma embeddings are passed, then concatenate them with the word embeddings
-        if vocab_size > 0:
+        if input_mode == "joint":
             embedded_inputs = embed_inputs(self.train_inputs_lemmas, self.train_inputs)
-        else:
+        elif input_mode == "lemma":
             embedded_inputs = embed_inputs(self.train_inputs_lemmas)
+        elif input_mode == "wordform":
+            embedded_inputs = embed_inputs(self.train_inputs)
         self.cost, self.logits = biRNN_WSD(embedded_inputs, self.train_seq_lengths, self.train_indices,
                                            self.weights, self.biases, self.train_labels, True, self.keep_prob)
         self.train_op = tf.train.GradientDescentOptimizer(learning_rate).minimize(self.cost)
-        if vocab_size_lemmas > 0:
+        # self.train_op = tf.train.AdamOptimizer(learning_rate).minimize(self.cost)
+        if input_mode == "joint":
             embedded_inputs = embed_inputs(self.val_inputs_lemmas, self.val_inputs)
-        else:
+        elif input_mode == "lemma":
             embedded_inputs = embed_inputs(self.val_inputs_lemmas)
+        elif input_mode == "wordform":
+            embedded_inputs = embed_inputs(self.val_inputs)
         tf.get_variable_scope().reuse_variables()
         _, self.val_logits = biRNN_WSD(embedded_inputs, self.val_seq_lengths, self.val_indices,
                                        self.weights, self.biases, self.val_labels, False)
@@ -203,12 +217,13 @@ def run_epoch(session, model, data, keep_prob, mode):
         labels = data[3]
         words_to_disambiguate = data[4]
         indices = data[5]
-        feed_dict = { model.train_inputs : inputs,
-                      model.train_seq_lengths : seq_lengths,
+        feed_dict = { model.train_seq_lengths : seq_lengths,
                       model.train_model_flags : words_to_disambiguate,
                       model.train_indices : indices,
                       model.train_labels : labels,
                       model.keep_prob : keep_prob}
+        if len(inputs) > 0:
+            feed_dict.update({model.train_inputs: inputs})
         if len(input_lemmas) > 0:
             feed_dict.update({model.train_inputs_lemmas : input_lemmas})
     if mode == "train":
@@ -231,21 +246,21 @@ if __name__ == "__main__":
                         help="Is this is a training run or an application run? Options: train, application")
     parser.add_argument('-wsd_method', dest='wsd_method', required=True, default="fullsoftmax",
                         help='Which method is used for the final, WSD step: similarity or fullsoftmax?')
-    parser.add_argument('-word_embedding_method', dest='word_embedding_method', required=True, default="tensorflow",
+    parser.add_argument('-word_embedding_method', dest='word_embedding_method', required=False, default="tensorflow",
                         help='Which method is used for loading the pretrained embeddings: tensorflow, gensim, glove?')
     parser.add_argument('-joint_embedding', dest='joint_embedding', required=False,
                         help='Whether lemmas and synsets are jointly embedded.')
     parser.add_argument('-word_embedding_input', dest='word_embedding_input', required=False, default="wordform",
-                        help='Are these embeddings of wordforms or lemmas (options are: wordform, lemma)?')
+                        help='Are these embeddings of wordforms or lemmas (options are: wordform, lemma, joint)?')
     parser.add_argument('-word_embedding_case', dest='word_embedding_case', required=False, default="lowercase",
                         help='Are the word embeddings trained on lowercased or mixedcased text? Options: lowercase, mixedcase')
     parser.add_argument('-embeddings_load_script', dest='embeddings_load_script', required=False, default="None",
                         help='Path to the Python file that creates the word2vec object (tensorflow model).')
-    parser.add_argument('-word_embeddings_src_path', dest='word_embeddings_src_path', required=True,
+    parser.add_argument('-word_embeddings_src_path', dest='word_embeddings_src_path', required=False,
                         help='The path to the pretrained model with the word embeddings.')
     parser.add_argument('-word_embeddings_src_train_data', dest='word_embeddings_src_train_data', required=False,
                         help='The path to the corpus used for training the word embeddings for the source language (tensorflow model).')
-    parser.add_argument('-word_embedding_dim', dest='word_embedding_dim', required=True,
+    parser.add_argument('-word_embedding_dim', dest='word_embedding_dim', required=False, default="0",
                         help='Size of the word embedding vectors.')
     parser.add_argument('-lemma_embeddings_src_path', dest='lemma_embeddings_src_path', required=False,
                         help='The path to the pretrained model with the lemma embeddings.')
@@ -253,6 +268,8 @@ if __name__ == "__main__":
                         help='Size of the lemma embedding vectors.')
     parser.add_argument('-sense_embeddings_src_path', dest='sense_embeddings_src_path', required=False, default="None",
                         help='If a path to sense embeddings is passed to the script, label generation is done using them.')
+    parser.add_argument('-synset_mapping', dest='synset_mapping', required=False,
+                        help='A mapping between the synset embedding IDs and WordNet, if such is necessary.')
     parser.add_argument('-learning_rate', dest='learning_rate', required=False, default=0.3,
                         help='How fast should the network learn.')
     parser.add_argument('-training_iterations', dest='training_iters', required=False, default=100000,
@@ -292,6 +309,7 @@ if __name__ == "__main__":
     word_embeddings_src_path = args.word_embeddings_src_path
     lemma_embeddings_src_path = args.lemma_embeddings_src_path
     sense_embeddings_src_path = args.sense_embeddings_src_path
+    synset_mapping = args.synset_mapping
     word_embedding_method = args.word_embedding_method
     word_embedding_dim = int(args.word_embedding_dim)
     lemma_embedding_dim = int(args.lemma_embedding_dim)
@@ -303,47 +321,48 @@ if __name__ == "__main__":
     id2src = {}
     id2src_lemmas = {}
     src2id_lemmas = {}
-    if word_embedding_method == "gensim":
-        word_embeddings_model = KeyedVectors.load_word2vec_format(word_embeddings_src_path, binary=False)
-        word_embeddings = word_embeddings_model.syn0
-        id2src = word_embeddings_model.index2word
-        for i, word in enumerate(id2src):
-            src2id[word] = i
-    elif word_embedding_method == "tensorflow":
-        embeddings_load_script = args.embeddings_load_script
-        sys.path.insert(0, embeddings_load_script)
-        import word2vec_optimized as w2v
-        word_embeddings = {} # store the normalized embeddings; keys are integers (0 to n)
-        #TODO load the vectors from a saved structure, this TF graph below is pointless
-        with tf.Graph().as_default(), tf.Session() as session:
-            opts = w2v.Options()
-            opts.train_data = args.word_embeddings_src_train_data
-            opts.save_path = word_embeddings_src_path
-            opts.emb_dim = word_embedding_dim
-            model = w2v.Word2Vec(opts, session)
-            ckpt = tf.train.get_checkpoint_state(args.word_embeddings_src_save_path)
-            if ckpt and ckpt.model_checkpoint_path:
-                model.saver.restore(session, ckpt.model_checkpoint_path)
-            else:
-                print("No valid checkpoint to reload a model was found!")
-            src2id = model._word2id
-            id2src = model._id2word
-            word_embeddings = session.run(model._w_in)
-            word_embeddings = tf.nn.l2_normalize(word_embeddings, 1).eval()
-            #word_embeddings = np.vstack((word_embeddings, word_embedding_dim * [0.0]))
-    elif word_embedding_method == "glove":
-        word_embeddings, src2id, id2src = data_ops.loadGloveModel(word_embeddings_src_path)
-        word_embeddings = np.asarray(word_embeddings)
-        src2id["UNK"] = src2id["unk"]
-        del src2id["unk"]
-    if src2id != None and "UNK" not in src2id:
-        #TODO use a random distribution rather
-        unk = np.zeros(word_embedding_dim)
-        src2id["UNK"] = len(src2id)
-        word_embeddings = np.concatenate((word_embeddings, [unk]))
+    if word_embeddings_src_path != None:
+        if word_embedding_method == "gensim":
+            word_embeddings_model = KeyedVectors.load_word2vec_format(word_embeddings_src_path, binary=True)
+            word_embeddings = word_embeddings_model.syn0
+            id2src = word_embeddings_model.index2word
+            for i, word in enumerate(id2src):
+                src2id[word] = i
+        elif word_embedding_method == "tensorflow":
+            embeddings_load_script = args.embeddings_load_script
+            sys.path.insert(0, embeddings_load_script)
+            import word2vec_optimized as w2v
+            word_embeddings = {} # store the normalized embeddings; keys are integers (0 to n)
+            #TODO load the vectors from a saved structure, this TF graph below is pointless
+            with tf.Graph().as_default(), tf.Session() as session:
+                opts = w2v.Options()
+                opts.train_data = args.word_embeddings_src_train_data
+                opts.save_path = word_embeddings_src_path
+                opts.emb_dim = word_embedding_dim
+                model = w2v.Word2Vec(opts, session)
+                ckpt = tf.train.get_checkpoint_state(args.word_embeddings_src_save_path)
+                if ckpt and ckpt.model_checkpoint_path:
+                    model.saver.restore(session, ckpt.model_checkpoint_path)
+                else:
+                    print("No valid checkpoint to reload a model was found!")
+                src2id = model._word2id
+                id2src = model._id2word
+                word_embeddings = session.run(model._w_in)
+                word_embeddings = tf.nn.l2_normalize(word_embeddings, 1).eval()
+                #word_embeddings = np.vstack((word_embeddings, word_embedding_dim * [0.0]))
+        elif word_embedding_method == "glove":
+            word_embeddings, src2id, id2src = data_ops.loadGloveModel(word_embeddings_src_path)
+            word_embeddings = np.asarray(word_embeddings)
+            src2id["UNK"] = src2id["unk"]
+            del src2id["unk"]
+        if src2id != None and "UNK" not in src2id:
+            #TODO use a random distribution rather
+            unk = np.zeros(word_embedding_dim)
+            src2id["UNK"] = len(src2id)
+            word_embeddings = np.concatenate((word_embeddings, [unk]))
 
     if lemma_embeddings_src_path != None:
-        lemma_embeddings_model = KeyedVectors.load_word2vec_format(lemma_embeddings_src_path, binary=False)
+        lemma_embeddings_model = KeyedVectors.load_word2vec_format(lemma_embeddings_src_path, binary=True)
         lemma_embeddings = lemma_embeddings_model.syn0
         id2src_lemmas = lemma_embeddings_model.index2word
         for i, word in enumerate(id2src_lemmas):
@@ -402,7 +421,7 @@ if __name__ == "__main__":
     # get synset embeddings if a path to a model is passed
     if sense_embeddings_src_path != "None":
         if joint_embedding == "True":
-            if lemma_embeddings_src_path != "None":
+            if lemma_embeddings_src_path != None:
                 sense_embeddings_model = lemma_embeddings_model
             else:
                 sense_embeddings_model = word_embeddings_model
@@ -411,8 +430,23 @@ if __name__ == "__main__":
         sense_embeddings_full = sense_embeddings_model.syn0
         sense_embeddings = np.zeros(shape=(len(synset2id), 300), dtype=float)
         id2synset_embeddings = sense_embeddings_model.index2word
+        if synset_mapping != None:
+            bn2wn = pickle.load(open(synset_mapping, "rb"))
+        count23 = 0
         for i, synset in enumerate(id2synset_embeddings):
-            if synset in synset2id:
+            # in the first case the embeddings of the synsets use BabelNet IDs which need to be mapped to WordNet
+            if synset.startswith("bn:"):
+                # synset = synset[-12:]
+                # bear in mind that there are 6 instances in the mapping of one BN id mapped to two WN synsets
+                if synset in bn2wn:
+                    synsets = bn2wn[synset]
+                else:
+                    continue
+                for synset in synsets:
+                    if synset in synset2id:
+                        count23 += 1
+                        sense_embeddings[synset2id[synset]] = copy(sense_embeddings_full[i])
+            elif synset in synset2id:
                 sense_embeddings[synset2id[synset]] = copy(sense_embeddings_full[i])
     else:
         sense_embeddings = None
@@ -421,7 +455,7 @@ if __name__ == "__main__":
     val_indices, val_lemmas_to_disambiguate, val_synsets_gold = data_ops.format_data\
                                                     (wsd_method, val_data, src2id, src2id_lemmas, synset2id,
                                                     seq_width, word_embedding_case, word_embedding_input,
-                                                     sense_embeddings, dropword=0)
+                                                     sense_embeddings, 0, "evaluation")
 
     # Function to calculate the accuracy on a batch of results and gold labels
     def accuracy(logits, lemmas, synsets_gold):
@@ -499,7 +533,11 @@ if __name__ == "__main__":
 
     model = None
     if wsd_method == "similarity":
-        model = ModelVectorSimilarity(lemma_embedding_dim, vocab_size_lemmas, batch_size, seq_width, n_hidden, val_inputs,
+        if word_embedding_input == "wordform":
+            embedding_dim = word_embedding_dim
+        else:
+            embedding_dim = lemma_embedding_dim
+        model = ModelVectorSimilarity(word_embedding_input, embedding_dim, vocab_size_lemmas, batch_size, seq_width, n_hidden, val_inputs,
                                       val_seq_lengths, val_words_to_disambiguate, val_indices, val_labels,
                                       word_embedding_dim, vocab_size)
     elif wsd_method == "fullsoftmax":
@@ -536,9 +574,11 @@ if __name__ == "__main__":
     else:
         init = tf.initialize_all_variables()
         if wsd_method == "similarity":
-            feed_dict = {model.emb_placeholder_lemmas: lemma_embeddings, model.place: val_labels}
-            if len(word_embeddings) != None:
+            feed_dict = {model.place: val_labels}
+            if len(word_embeddings) > 0:
                 feed_dict.update({model.emb_placeholder: word_embeddings})
+            if len(lemma_embeddings) > 0:
+                feed_dict.update({model.emb_placeholder_lemmas: lemma_embeddings})
             session.run(init, feed_dict=feed_dict)
 
         elif wsd_method == "fullsoftmax":

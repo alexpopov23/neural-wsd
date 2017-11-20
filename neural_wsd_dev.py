@@ -110,32 +110,34 @@ class ModelVectorSimilarity:
                  val_flags, val_indices, val_labels, word_embedding_dim, vocab_size_wordforms):
 
         if vocab_size_lemmas > 0:
-            self.emb_placeholder_lemmas = tf.placeholder(tf.float32, shape=[vocab_size_lemmas, lemma_embedding_dim])
-            self.embeddings_lemmas = tf.Variable(self.emb_placeholder_lemmas)
+            self.emb_placeholder_lemmas = tf.placeholder(tf.float32, shape=[vocab_size_lemmas, lemma_embedding_dim],
+                                                         name="placeholder_for_lemma_embeddings")
+            self.embeddings_lemmas = tf.Variable(self.emb_placeholder_lemmas, name="lemma_embeddings")
             self.set_embeddings_lemmas = tf.assign(self.embeddings_lemmas, self.emb_placeholder_lemmas,
                                                    validate_shape=False)
         if vocab_size_wordforms > 0:
-            self.emb_placeholder = tf.placeholder(tf.float32, shape=[vocab_size_wordforms, word_embedding_dim])
-            self.embeddings = tf.Variable(self.emb_placeholder)
+            self.emb_placeholder = tf.placeholder(tf.float32, shape=[vocab_size_wordforms, word_embedding_dim],
+                                                  name="placeholder_for_word_embeddings")
+            self.embeddings = tf.Variable(self.emb_placeholder, name="word_embeddings")
             self.set_embeddings = tf.assign(self.embeddings, self.emb_placeholder, validate_shape=False)
         #TODO pick an initializer
         self.weights = tf.get_variable(name="w", shape=[2*n_hidden, lemma_embedding_dim], dtype=tf.float32)
         self.biases = tf.get_variable(name="b", shape=[lemma_embedding_dim], dtype=tf.float32)
-        self.train_inputs = tf.placeholder(tf.int32, shape=[batch_size, seq_width])
-        self.train_inputs_lemmas = tf.placeholder(tf.int32, shape=[batch_size, seq_width])
-        self.train_seq_lengths = tf.placeholder(tf.int32, shape=[batch_size])
-        self.train_model_flags = tf.placeholder(tf.bool, shape=[batch_size, seq_width])
-        self.train_labels = tf.placeholder(tf.float32, shape=[None, lemma_embedding_dim])
-        self.train_indices = tf.placeholder(tf.int32, shape=[None])
+        self.train_inputs = tf.placeholder(tf.int32, shape=[batch_size, seq_width], name="train_inputs")
+        self.train_inputs_lemmas = tf.placeholder(tf.int32, shape=[batch_size, seq_width], name="train_input_lemmas")
+        self.train_seq_lengths = tf.placeholder(tf.int32, shape=[batch_size], name="train_seq_lengths")
+        self.train_model_flags = tf.placeholder(tf.bool, shape=[batch_size, seq_width], name="train_model_flags")
+        self.train_labels = tf.placeholder(tf.float32, shape=[None, lemma_embedding_dim], name="train_labels")
+        self.train_indices = tf.placeholder(tf.int32, shape=[None], name="train_indices")
         if vocab_size > 0:
-            self.val_inputs = tf.constant(val_inputs, tf.int32)
+            self.val_inputs = tf.constant(val_inputs, tf.int32, name="val_inputs")
         if vocab_size_lemmas > 0:
-            self.val_inputs_lemmas = tf.constant(val_input_lemmas, tf.int32)
-        self.val_seq_lengths = tf.constant(val_seq_lengths, tf.int32)
-        self.val_flags = tf.constant(val_flags, tf.bool)
+            self.val_inputs_lemmas = tf.constant(val_input_lemmas, tf.int32, name="val_input_lemmas")
+        self.val_seq_lengths = tf.constant(val_seq_lengths, tf.int32, name="val_seq_lengths")
+        self.val_flags = tf.constant(val_flags, tf.bool, name="val_flags")
         self.place = tf.placeholder(tf.float32, shape=val_labels.shape)
-        self.val_labels = tf.Variable(self.place)
-        self.val_indices = tf.constant(val_indices, tf.int32)
+        self.val_labels = tf.Variable(self.place, name="val_labels")
+        self.val_indices = tf.constant(val_indices, tf.int32, name="val_indices")
         self.keep_prob = tf.placeholder(tf.float32)
 
         def embed_inputs (inputs, inputs_optional=None):
@@ -362,7 +364,7 @@ if __name__ == "__main__":
             word_embeddings = np.concatenate((word_embeddings, [unk]))
 
     if lemma_embeddings_src_path != None:
-        lemma_embeddings_model = KeyedVectors.load_word2vec_format(lemma_embeddings_src_path, binary=True)
+        lemma_embeddings_model = KeyedVectors.load_word2vec_format(lemma_embeddings_src_path, binary=False)
         lemma_embeddings = lemma_embeddings_model.syn0
         id2src_lemmas = lemma_embeddings_model.index2word
         for i, word in enumerate(id2src_lemmas):

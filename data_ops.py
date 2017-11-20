@@ -422,17 +422,18 @@ def format_data (wsd_method, input_data, src2id, src2id_lemmas, synset2id, seq_w
             ind_count += 1
 
         current_wtd += (seq_width - len(current_wtd)) * [False]
-        if word_embedding_input == "wordform":
+        if word_embedding_input == "wordform" or word_embedding_input == "joint":
             seq_lengths.append(len(current_input))
+            if (len(current_input) < seq_width):
+                ind_count += seq_width - len(current_input)
         if word_embedding_input == "lemma":
             seq_lengths.append(len(current_input_lemmas))
-        if (len(current_input) < seq_width):
-            ind_count += seq_width - len(current_input)
-            # changed [0] to [-1], should have no effect, but do check
-            if len(src2id) > 0:
-                current_input += (seq_width - len(current_input)) * [src2id["UNK"]]
-            if len(src2id_lemmas) > 0:
-                current_input_lemmas += (seq_width - len(current_input_lemmas)) * [src2id_lemmas["UNK"]]
+            if (len(current_input_lemmas) < seq_width):
+                ind_count += seq_width - len(current_input_lemmas)
+        if len(src2id) > 0:
+            current_input += (seq_width - len(current_input)) * [src2id["UNK"]]
+        if len(src2id_lemmas) > 0:
+            current_input_lemmas += (seq_width - len(current_input_lemmas)) * [src2id_lemmas["UNK"]]
         if len(src2id) > 0:
             current_input = np.asarray(current_input)
         if len(src2id_lemmas) > 0:

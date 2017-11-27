@@ -164,16 +164,24 @@ class ModelVectorSimilarity:
                 initializer = tf.random_uniform_initializer(-1, 1)
                 # TODO: Use state_is_tuple=True
                 # TODO: add dropout
-                fw_cell = tf.contrib.rnn.LSTMCell(n_hidden, initializer=initializer)
-                if is_training:
-                    fw_cell = tf.contrib.rnn.DropoutWrapper(fw_cell, input_keep_prob=keep_prob, output_keep_prob=keep_prob)
-                fw_multicell = tf.contrib.rnn.MultiRNNCell([fw_cell] * n_hidden_layers)
-                # TODO: Use state_is_tuple=True
-                # TODO: add dropout
-                bw_cell = tf.contrib.rnn.LSTMCell(n_hidden, initializer=initializer)
-                if is_training:
-                    bw_cell = tf.contrib.rnn.DropoutWrapper(bw_cell, input_keep_prob=keep_prob, output_keep_prob=keep_prob,)
-                bw_multicell = tf.contrib.rnn.MultiRNNCell([bw_cell] * n_hidden_layers)
+                def lstm_cell():
+                    lstm_cell = tf.contrib.rnn.LSTMCell(n_hidden, initializer=initializer)
+                    if is_training:
+                        lstm_cell = tf.contrib.rnn.DropoutWrapper(lstm_cell, input_keep_prob=keep_prob, output_keep_prob=keep_prob)
+                    return lstm_cell
+
+                # fw_cell = tf.contrib.rnn.LSTMCell(n_hidden, initializer=initializer)
+                # if is_training:
+                #     fw_cell = tf.contrib.rnn.DropoutWrapper(fw_cell, input_keep_prob=keep_prob, output_keep_prob=keep_prob)
+                # fw_multicell = tf.contrib.rnn.MultiRNNCell([fw_cell] * n_hidden_layers)
+                # # TODO: Use state_is_tuple=True
+                # # TODO: add dropout
+                # bw_cell = tf.contrib.rnn.LSTMCell(n_hidden, initializer=initializer)
+                # if is_training:
+                #     bw_cell = tf.contrib.rnn.DropoutWrapper(bw_cell, input_keep_prob=keep_prob, output_keep_prob=keep_prob,)
+                # bw_multicell = tf.contrib.rnn.MultiRNNCell([bw_cell] * n_hidden_layers)
+                fw_multicell = tf.contrib.rnn.MultiRNNCell([lstm_cell() for _ in range(n_hidden_layers)])
+                bw_multicell = tf.contrib.rnn.MultiRNNCell([lstm_cell() for _ in range(n_hidden_layers)])
                 # Get the blstm cell output
                 rnn_outputs, _ = tf.nn.bidirectional_dynamic_rnn(fw_multicell, bw_multicell, embedded_inputs, dtype="float32",
                                                                  sequence_length=seq_lengths)

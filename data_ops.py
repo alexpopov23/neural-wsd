@@ -320,7 +320,7 @@ def read_data_uniroma (path, sensekey2synset, lemma2synsets={}, lemma2id={}, syn
 
 
 def format_data (wsd_method, input_data, src2id, src2id_lemmas, synset2id, seq_width, word_embedding_case,
-                 word_embedding_input, sense_embeddings=None, dropword=0.0, mode="training"):
+                 word_embedding_input, sense_embeddings=None, dropword=0.0, mode="training", skip_unknown=False):
 
     inputs = []
     inputs_lemmas = []
@@ -390,7 +390,12 @@ def format_data (wsd_method, input_data, src2id, src2id_lemmas, synset2id, seq_w
                     if word[1].lower() in src2id_lemmas:
                         current_input_lemmas.append(src2id_lemmas[word[1].lower()])
                     else:
-                        current_input_lemmas.append(src2id_lemmas["UNK"])
+                        if current_flag == True:
+                            current_input_lemmas.append(src2id_lemmas["UNK"])
+                        elif skip_unknown == True:
+                            continue
+                        else:
+                            current_input_lemmas.append(src2id_lemmas["UNK"])
             if (word[-1][0] > -1):
                 current_label = np.zeros([300], dtype=float)
                 if wsd_method == "similarity":

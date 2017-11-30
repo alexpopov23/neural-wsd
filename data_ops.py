@@ -267,11 +267,11 @@ def read_data_uniroma (path, sensekey2synset, lemma2synsets={}, lemma2id={}, syn
         lemma2synsets = collections.OrderedDict(sorted(lemma2synsets.items()))
         index_l = 0
         index_s = 0
-        if wsd_method == "fullsoftmax":
+        if wsd_method == "fullsoftmax" or wsd_method == "multitask":
             synset2id['notseen-n'], synset2id['notseen-v'], synset2id['notseen-a'], synset2id['notseen-r'] = 0, 1, 2, 3
             index_s = 4
         for lemma, synsets in lemma2synsets.iteritems():
-            if wsd_method == "fullsoftmax" and lemma not in known_lemmas:
+            if (wsd_method == "fullsoftmax" or wsd_method == "multitask") and lemma not in known_lemmas:
                 continue
             lemma2id[lemma] = index_l
             index_l += 1
@@ -294,7 +294,7 @@ def read_data_uniroma (path, sensekey2synset, lemma2synsets={}, lemma2id={}, syn
                     count_ambig += 1
                 synsets = []
                 # check if lemma is known
-                if wsd_method == "fullsoftmax" and word[1] not in known_lemmas:
+                if (wsd_method == "fullsoftmax" or wsd_method == "multitask") and word[1] not in known_lemmas:
                     if len(lemma2synsets[word[1]]) == 1:
                         count_missing1 += 1
                     elif len(lemma2synsets[word[1]]) > 1:
@@ -326,6 +326,8 @@ def format_data (wsd_method, input_data, src2id, src2id_lemmas, synset2id, seq_w
     inputs_lemmas = []
     seq_lengths = []
     labels = []
+    # for the multitask case
+    labels_c = []
     words_to_disambiguate = []
     # a list of the words in the sentences to be disambiguated (indexed by integers)
     indices = []
@@ -338,6 +340,8 @@ def format_data (wsd_method, input_data, src2id, src2id_lemmas, synset2id, seq_w
         current_input = []
         current_input_lemmas = []
         current_labels = []
+        # for the multitask case
+        current_labels_c = []
         current_wtd = []
         current_gold_synsets = []
         for j, word in enumerate(sentence):
@@ -407,8 +411,8 @@ def format_data (wsd_method, input_data, src2id, src2id_lemmas, synset2id, seq_w
                     current_label = current_label / len(word[-1])
                     # In case no non-zero embedding is found for the synset, don't include it in the training data
                     if mode == "training" and np.amax(current_label) == 0.0:
-                        ind_count += 1
                         current_wtd.append(False)
+                        ind_count += 1
                         continue
                     # else:
                     #     current_label = np.zeros(len(synset2id), dtype=int)
@@ -417,8 +421,19 @@ def format_data (wsd_method, input_data, src2id, src2id_lemmas, synset2id, seq_w
                     current_label = np.zeros(len(synset2id), dtype=float)
                     for syn in word[-1]:
                         current_label[syn] = 1.0/len(word[-1])
+                elif wsd_method == "multitask":
+                        for syn in word[-1]:
+                            if syn < len(sense_embeddings):
+                                current_label += sense_embeddings[syn]
+                        current_label = current_label / len(word[-1])
+                        current_label_c = np.zeros(len(synset2id), dtype=float)
+                        for syn in word[-1]:
+                            current_label_c[syn] = 1.0/len(word[-1])
+
                 current_gold_synsets.append(word[-2])
                 current_labels.append(current_label)
+                if wsd_method == "multitask":
+                    current_labels_c.append(current_label_c)
                 indices.append(copy(ind_count))
                 lemmas_to_disambiguate.append(word[1])
             # else:
@@ -449,11 +464,16 @@ def format_data (wsd_method, input_data, src2id, src2id_lemmas, synset2id, seq_w
             inputs_lemmas.append(current_input_lemmas)
         # extend results in a 2-d tensor where sentences are concatenated; append results in a 3-d tensor
         labels.extend(current_labels)
+        if wsd_method == "multitask":
+            labels_c.extend(current_labels_c)
         synsets_gold.extend(current_gold_synsets)
         words_to_disambiguate.append(current_wtd)
     seq_lengths = np.asarray(seq_lengths)
     words_to_disambiguate = np.asarray(words_to_disambiguate)
     labels = np.asarray(labels)
+    if wsd_method == "multitask":
+        labels_c = np.asarray(labels_c)
+        labels = (labels_c, labels)
     indices = np.asarray(indices)
     inputs = np.asarray(inputs)
     inputs_lemmas = np.asarray(inputs_lemmas)

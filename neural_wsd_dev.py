@@ -114,8 +114,9 @@ class ModelSingleSoftmax:
 class ModelVectorSimilarity:
 
     #TODO make model work with batches (no reason not to use them before the WSD part, I think)
-    def __init__(self, input_mode, lemma_embedding_dim, vocab_size_lemmas, batch_size, seq_width, n_hidden, val_inputs, val_seq_lengths,
-                 val_flags, val_indices, val_labels, word_embedding_dim, vocab_size_wordforms):
+    def __init__(self, input_mode, output_embedding_dim, lemma_embedding_dim, vocab_size_lemmas, batch_size, seq_width,
+                 n_hidden, val_inputs, val_seq_lengths, val_flags, val_indices, val_labels, word_embedding_dim,
+                 vocab_size_wordforms):
 
         if vocab_size_lemmas > 0:
             self.emb_placeholder_lemmas = tf.placeholder(tf.float32, shape=[vocab_size_lemmas, lemma_embedding_dim],
@@ -129,8 +130,8 @@ class ModelVectorSimilarity:
             self.embeddings = tf.Variable(self.emb_placeholder, name="word_embeddings")
             self.set_embeddings = tf.assign(self.embeddings, self.emb_placeholder, validate_shape=False)
         #TODO pick an initializer
-        self.weights = tf.get_variable(name="w", shape=[2*n_hidden, lemma_embedding_dim], dtype=tf.float32)
-        self.biases = tf.get_variable(name="b", shape=[lemma_embedding_dim], dtype=tf.float32)
+        self.weights = tf.get_variable(name="w", shape=[2*n_hidden, output_embedding_dim], dtype=tf.float32)
+        self.biases = tf.get_variable(name="b", shape=[output_embedding_dim], dtype=tf.float32)
         self.train_inputs = tf.placeholder(tf.int32, shape=[batch_size, seq_width], name="train_inputs")
         self.train_inputs_lemmas = tf.placeholder(tf.int32, shape=[batch_size, seq_width], name="train_input_lemmas")
         self.train_seq_lengths = tf.placeholder(tf.int32, shape=[batch_size], name="train_seq_lengths")
@@ -225,7 +226,135 @@ class ModelVectorSimilarity:
         _, self.val_logits = biRNN_WSD(embedded_inputs, self.val_seq_lengths, self.val_indices,
                                        self.weights, self.biases, self.val_labels, False)
 
-def run_epoch(session, model, data, keep_prob, mode):
+
+class ModelMultiTaskLearning:
+
+    #TODO make model work with batches (no reason not to use them before the WSD part, I think)
+    def __init__(self, input_mode, synset2id, output_embedding_dim, lemma_embedding_dim, vocab_size_lemmas,
+                 batch_size, seq_width, n_hidden, val_inputs, val_seq_lengths, val_flags, val_indices,
+                 val_labels_classification, val_labels_regression, word_embedding_dim, vocab_size_wordforms):
+
+        if vocab_size_lemmas > 0:
+            self.emb_placeholder_lemmas = tf.placeholder(tf.float32, shape=[vocab_size_lemmas, lemma_embedding_dim],
+                                                         name="placeholder_for_lemma_embeddings")
+            self.embeddings_lemmas = tf.Variable(self.emb_placeholder_lemmas, name="lemma_embeddings")
+            self.set_embeddings_lemmas = tf.assign(self.embeddings_lemmas, self.emb_placeholder_lemmas,
+                                                   validate_shape=False)
+        if vocab_size_wordforms > 0:
+            self.emb_placeholder = tf.placeholder(tf.float32, shape=[vocab_size_wordforms, word_embedding_dim],
+                                                  name="placeholder_for_word_embeddings")
+            self.embeddings = tf.Variable(self.emb_placeholder, name="word_embeddings")
+            self.set_embeddings = tf.assign(self.embeddings, self.emb_placeholder, validate_shape=False)
+        #TODO pick an initializer
+        self.weights_classification = tf.get_variable(name="w_classification", shape=[2*n_hidden, len(synset2id)], dtype=tf.float32)
+        self.biases_classification = tf.get_variable(name="b_classification", shape=[len(synset2id)], dtype=tf.float32)
+        self.weights_regression = tf.get_variable(name="w_regression", shape=[2*n_hidden, output_embedding_dim], dtype=tf.float32)
+        self.biases_regression = tf.get_variable(name="b_regression", shape=[output_embedding_dim], dtype=tf.float32)
+        self.train_inputs = tf.placeholder(tf.int32, shape=[batch_size, seq_width], name="train_inputs")
+        self.train_inputs_lemmas = tf.placeholder(tf.int32, shape=[batch_size, seq_width], name="train_input_lemmas")
+        self.train_seq_lengths = tf.placeholder(tf.int32, shape=[batch_size], name="train_seq_lengths")
+        self.train_model_flags = tf.placeholder(tf.bool, shape=[batch_size, seq_width], name="train_model_flags")
+        self.train_labels_classification = tf.placeholder(tf.float32,
+                                                          shape=[None, len(synset2id)],
+                                                          name="train_labels_classification")
+        self.train_labels_regression = tf.placeholder(tf.float32,
+                                                          shape=[None, output_embedding_dim],
+                                                          name="train_labels_regression")
+        self.train_indices = tf.placeholder(tf.int32, shape=[None], name="train_indices")
+        if vocab_size > 0:
+            self.val_inputs = tf.constant(val_inputs, tf.int32, name="val_inputs")
+        if vocab_size_lemmas > 0:
+            self.val_inputs_lemmas = tf.constant(val_input_lemmas, tf.int32, name="val_input_lemmas")
+        self.val_seq_lengths = tf.constant(val_seq_lengths, tf.int32, name="val_seq_lengths")
+        self.val_flags = tf.constant(val_flags, tf.bool, name="val_flags")
+        self.place_c = tf.placeholder(tf.float32, shape=val_labels_classification.shape)
+        self.place_r = tf.placeholder(tf.float32, shape=val_labels_regression.shape)
+        self.val_labels_classification = tf.Variable(self.place_c, name="val_labels_classification")
+        self.val_labels_regression = tf.Variable(self.place_r, name="val_labels_regression")
+        self.val_indices = tf.constant(val_indices, tf.int32, name="val_indices")
+        self.keep_prob = tf.placeholder(tf.float32)
+
+        def embed_inputs (inputs, inputs_optional=None):
+
+            if input_mode == "joint":
+                embeddings1 = self.embeddings_lemmas
+                embeddings2 = self.embeddings
+            elif input_mode == "wordform":
+                embeddings1 = self.embeddings
+            elif input_mode == "lemma":
+                embeddings1 = self.embeddings_lemmas
+            embedded_inputs = tf.nn.embedding_lookup(embeddings1, inputs)
+            if input_mode == "joint":
+                embedded_inputs_wordforms = tf.nn.embedding_lookup(embeddings2, inputs_optional)
+                embedded_inputs = tf.concat([embedded_inputs, embedded_inputs_wordforms], 2)
+
+            return embedded_inputs
+
+        def biRNN_WSD (embedded_inputs, seq_lengths, indices, weights_c, biases_c, weights_r, biases_r,
+                       labels_c, labels_r, is_training, keep_prob=1.0):
+
+            with tf.variable_scope(tf.get_variable_scope()) as scope:
+
+                # Bidirectional recurrent neural network with LSTM cells
+                initializer = tf.random_uniform_initializer(-1, 1)
+                # TODO: Use state_is_tuple=True
+                # TODO: add dropout
+                def lstm_cell():
+                    lstm_cell = tf.contrib.rnn.LSTMCell(n_hidden, initializer=initializer)
+                    if is_training:
+                        lstm_cell = tf.contrib.rnn.DropoutWrapper(lstm_cell, input_keep_prob=keep_prob, output_keep_prob=keep_prob)
+                    return lstm_cell
+
+                fw_multicell = tf.contrib.rnn.MultiRNNCell([lstm_cell() for _ in range(n_hidden_layers)])
+                bw_multicell = tf.contrib.rnn.MultiRNNCell([lstm_cell() for _ in range(n_hidden_layers)])
+                # Get the blstm cell output
+                rnn_outputs, _ = tf.nn.bidirectional_dynamic_rnn(fw_multicell, bw_multicell, embedded_inputs, dtype="float32",
+                                                                 sequence_length=seq_lengths)
+                rnn_outputs = tf.concat(rnn_outputs, 2)
+                scope.reuse_variables()
+                rnn_outputs = tf.reshape(rnn_outputs, [-1, 2*n_hidden])
+                target_outputs = tf.gather(rnn_outputs, indices)
+                output_c = tf.matmul(target_outputs, weights_c) + biases_c
+                losses_c = tf.nn.softmax_cross_entropy_with_logits(logits=output_c, labels=labels_c)
+                cost_c = tf.reduce_mean(losses_c)
+                output_r = tf.matmul(target_outputs, weights_r) + biases_r
+                losses_r = (labels_r - output_r) ** 2
+                cost_r = tf.reduce_mean(losses_r)
+                cost = cost_c + cost_r
+
+            return cost, cost_c, cost_r, output_c, output_r
+
+
+        # if lemma embeddings are passed, then concatenate them with the word embeddings
+        if input_mode == "joint":
+            embedded_inputs = embed_inputs(self.train_inputs_lemmas, self.train_inputs)
+        elif input_mode == "lemma":
+            embedded_inputs = embed_inputs(self.train_inputs_lemmas)
+        elif input_mode == "wordform":
+            embedded_inputs = embed_inputs(self.train_inputs)
+        self.cost, self.cost_c, self.cost_r, self.logits, self.output_emb = \
+            biRNN_WSD(embedded_inputs, self.train_seq_lengths, self.train_indices,
+                      self.weights_classification, self.biases_classification,
+                      self.weights_regression, self.biases_regression,
+                      self.train_labels_classification, self.train_labels_regression,
+                      True, self.keep_prob)
+        self.train_op = tf.train.GradientDescentOptimizer(learning_rate).minimize(self.cost)
+        # self.train_op = tf.train.AdamOptimizer(learning_rate).minimize(self.cost)
+        if input_mode == "joint":
+            embedded_inputs = embed_inputs(self.val_inputs_lemmas, self.val_inputs)
+        elif input_mode == "lemma":
+            embedded_inputs = embed_inputs(self.val_inputs_lemmas)
+        elif input_mode == "wordform":
+            embedded_inputs = embed_inputs(self.val_inputs)
+        tf.get_variable_scope().reuse_variables()
+        _, _, _, self.val_logits, self.val_output_emb = \
+            biRNN_WSD(embedded_inputs, self.val_seq_lengths, self.val_indices,
+                      self.weights_classification, self.biases_classification,
+                      self.weights_regression, self.biases_regression,
+                      self.val_labels_classification, self.val_labels_regression,
+                      False)
+
+def run_epoch(session, model, data, keep_prob, mode, multitask="False"):
 
     feed_dict = {}
     if mode != "application":
@@ -238,16 +367,27 @@ def run_epoch(session, model, data, keep_prob, mode):
         feed_dict = { model.train_seq_lengths : seq_lengths,
                       model.train_model_flags : words_to_disambiguate,
                       model.train_indices : indices,
-                      model.train_labels : labels,
                       model.keep_prob : keep_prob}
+        if multitask == "True":
+            feed_dict.update({model.train_labels_classification: labels[0]})
+            feed_dict.update({model.train_labels_regression: labels[1]})
+        else:
+            feed_dict.update({model.train_labels: labels})
         if len(inputs) > 0:
             feed_dict.update({model.train_inputs: inputs})
         if len(input_lemmas) > 0:
             feed_dict.update({model.train_inputs_lemmas : input_lemmas})
     if mode == "train":
-        ops = [model.train_op, model.cost, model.logits]
+        if multitask == "True":
+            ops = [model.train_op, model.cost_c, model.cost_r, model.logits, model.output_emb]
+        else:
+            ops = [model.train_op, model.cost, model.logits]
     elif mode == "val":
-        ops = [model.train_op, model.cost, model.logits, model.val_logits]
+        if multitask == "True":
+            ops = [model.train_op, model.cost_c, model.cost_r, model.logits, model.val_logits,
+                   model.output_emb, model.val_output_emb]
+        else:
+            ops = [model.train_op, model.cost, model.logits, model.val_logits]
     elif mode == "application":
         ops = [model.val_logits]
     fetches = session.run(ops, feed_dict=feed_dict)
@@ -324,6 +464,10 @@ if __name__ == "__main__":
     mode = args.mode
     wsd_method = args.wsd_method
     joint_embedding = args.joint_embedding
+    if wsd_method == "multitask":
+        multitask = "True"
+    else:
+        multitask = "False"
     word_embeddings_src_path = args.word_embeddings_src_path
     lemma_embeddings_src_path = args.lemma_embeddings_src_path
     sense_embeddings_src_path = args.sense_embeddings_src_path
@@ -552,16 +696,27 @@ if __name__ == "__main__":
     model = None
     if wsd_method == "similarity":
         if word_embedding_input == "wordform":
-            embedding_dim = word_embedding_dim
+            output_embedding_dim = word_embedding_dim
         else:
-            embedding_dim = lemma_embedding_dim
-        model = ModelVectorSimilarity(word_embedding_input, embedding_dim, vocab_size_lemmas, batch_size, seq_width, n_hidden, val_inputs,
-                                      val_seq_lengths, val_words_to_disambiguate, val_indices, val_labels,
-                                      word_embedding_dim, vocab_size)
+            output_embedding_dim = lemma_embedding_dim
+        model = ModelVectorSimilarity(word_embedding_input, output_embedding_dim, lemma_embedding_dim, vocab_size_lemmas,
+                                      batch_size, seq_width, n_hidden, val_inputs, val_seq_lengths,
+                                      val_words_to_disambiguate, val_indices, val_labels, word_embedding_dim, vocab_size)
     elif wsd_method == "fullsoftmax":
         model = ModelSingleSoftmax(synset2id, word_embedding_dim, vocab_size, batch_size, seq_width, n_hidden,
                                    n_hidden_layers, val_inputs, val_input_lemmas, val_seq_lengths, val_words_to_disambiguate,
                                    val_indices, val_labels, lemma_embedding_dim, len(src2id_lemmas))
+    elif wsd_method == "multitask":
+        if word_embedding_input == "wordform":
+            output_embedding_dim = word_embedding_dim
+        else:
+            output_embedding_dim = lemma_embedding_dim
+        model = ModelMultiTaskLearning(word_embedding_input, synset2id, output_embedding_dim, lemma_embedding_dim,
+                                       vocab_size_lemmas, batch_size, seq_width, n_hidden, val_inputs, val_seq_lengths,
+                                       val_words_to_disambiguate, val_indices, val_labels[0], val_labels[1],
+                                       word_embedding_dim, vocab_size)
+
+
 
     session = tf.Session()
     saver = tf.train.Saver()
@@ -605,12 +760,22 @@ if __name__ == "__main__":
                                              model.place: val_labels})
             else:
                 session.run(init, feed_dict={model.emb_placeholder: word_embeddings, model.place: val_labels})
+        elif wsd_method == "multitask":
+            feed_dict = {model.place_c : val_labels[0], model.place_r : val_labels[1]}
+            if len(word_embeddings) > 0:
+                feed_dict.update({model.emb_placeholder: word_embeddings})
+            if len(lemma_embeddings) > 0:
+                feed_dict.update({model.emb_placeholder_lemmas: lemma_embeddings})
+            session.run(init, feed_dict=feed_dict)
 
     #session.run(model.set_embeddings, feed_dict={model.emb_placeholder: word_embeddings})
 
     print "Start of training"
     batch_loss = 0
     best_accuracy = 0.0
+    if multitask == "True":
+        batch_loss_r = 0
+        best_accuracy_r = 0.0
     if not os.path.exists(args.save_path):
         os.makedirs(args.save_path)
     results = open(os.path.join(args.save_path, 'results.txt'), "a", 0)
@@ -621,15 +786,18 @@ if __name__ == "__main__":
         if (len(labels) == 0):
             continue
         input_data = [inputs, input_lemmas, seq_lengths, labels, words_to_disambiguate, indices]
-
         val_accuracy = 0.0
         if (step % 100 == 0):
             print "Step number " + str(step)
-            fetches = run_epoch(session, model, input_data, keep_prob, mode="val")
+            fetches = run_epoch(session, model, input_data, keep_prob, mode="val", multitask=multitask)
             if (fetches[1] is not None):
                 batch_loss += fetches[1]
+            if multitask == "True" and fetches[2] is not None:
+                batch_loss_r += fetches[2]
             results.write('EPOCH: %d' % step + '\n')
             results.write('Averaged minibatch loss at step ' + str(step) + ': ' + str(batch_loss/100.0) + '\n')
+            if multitask == "True":
+                results.write('Averaged minibatch loss (similarity) at step ' + str(step) + ': ' + str(batch_loss_r / 100.0) + '\n')
             if wsd_method == "similarity":
                 val_accuracy = str(accuracy_cosine_distance(fetches[3], val_lemmas_to_disambiguate, val_synsets_gold))
                 results.write('Minibatch accuracy: ' + str(accuracy_cosine_distance(fetches[2], lemmas_to_disambiguate, synsets_gold)) + '\n')
@@ -638,15 +806,31 @@ if __name__ == "__main__":
                 val_accuracy = str(accuracy(fetches[3], val_lemmas_to_disambiguate, val_synsets_gold))
                 results.write('Minibatch accuracy: ' + str(accuracy(fetches[2], lemmas_to_disambiguate, synsets_gold)) + '\n')
                 results.write('Validation accuracy: ' + val_accuracy + '\n')
+            elif wsd_method == "multitask":
+                val_accuracy = str(accuracy(fetches[4], val_lemmas_to_disambiguate, val_synsets_gold))
+                results.write('Minibatch classification accuracy: ' + str(accuracy(fetches[3], lemmas_to_disambiguate, synsets_gold)) + '\n')
+                results.write('Validation classification accuracy: ' + val_accuracy + '\n')
+                val_accuracy_r = str(accuracy_cosine_distance(fetches[6], val_lemmas_to_disambiguate, val_synsets_gold))
+                results.write('Minibatch regression accuracy: ' + str(accuracy_cosine_distance(fetches[5], lemmas_to_disambiguate, synsets_gold)) + '\n')
+                results.write('Validation regression accuracy: ' + val_accuracy_r + '\n')
+
+                # ops = [model.train_op, model.cost_c, model.cost_r, model.logits, model.val_logits,
+                #        model.output_emb, model.val_output_emb]
             print "Validation accuracy: " + str(val_accuracy)
             batch_loss = 0.0
+            if wsd_method == "multitask":
+                batch_loss_r = 0.0
         else:
-            fetches = run_epoch(session, model, input_data, keep_prob, mode="train")
+            fetches = run_epoch(session, model, input_data, keep_prob, mode="train", multitask=multitask)
             if (fetches[1] is not None):
                 batch_loss += fetches[1]
+            if multitask == "True" and fetches[2] is not None:
+                batch_loss_r += fetches[2]
 
         if val_accuracy > best_accuracy:
             best_accuracy = val_accuracy
+        if multitask == "True" and val_accuracy_r > best_accuracy_r:
+            best_accurary_r = val_accuracy_r
 
         # if (args.save_path != "None" and step == 25000 or step > 25000 and val_accuracy == best_accuracy):
         #     saver.save(session, os.path.join(args.save_path, "model.ckpt"), global_step=step)
@@ -661,4 +845,6 @@ if __name__ == "__main__":
         #             pickle.dump(id2synset, output, pickle.HIGHEST_PROTOCOL)
 
     results.write('\n\n\n' + 'Best result is: ' + best_accuracy)
+    if multitask == "True":
+        results.write('\n\n\n' + 'Best result (similarity) is: ' + best_accuracy_r)
     results.close()

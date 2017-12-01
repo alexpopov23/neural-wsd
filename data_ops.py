@@ -196,8 +196,9 @@ def get_sensekey2synset ():
         pickle.dump(sensekey2synset, output, pickle.HIGHEST_PROTOCOL)
     return sensekey2synset
 
-def read_data_uniroma (path, sensekey2synset, lemma2synsets={}, lemma2id={}, synset2id={}, id2synset={}, id2pos={},
-                       known_lemmas=set(), synset2freq = {}, wsd_method="full_dictionary", mode="train", f_lex=None):
+def read_data_uniroma (path, sensekey2synset, lemma2synsets={}, lemma2id={}, synset2id={}, synID_mapping={},
+                       id2synset={}, id2pos={}, known_lemmas=set(), synset2freq = {}, wsd_method="full_dictionary",
+                       mode="train", f_lex=None):
 
     data = []
     if mode == "train":
@@ -267,11 +268,14 @@ def read_data_uniroma (path, sensekey2synset, lemma2synsets={}, lemma2id={}, syn
         lemma2synsets = collections.OrderedDict(sorted(lemma2synsets.items()))
         index_l = 0
         index_s = 0
+        index_s_map = 0
         if wsd_method == "fullsoftmax" or wsd_method == "multitask":
             synset2id['notseen-n'], synset2id['notseen-v'], synset2id['notseen-a'], synset2id['notseen-r'] = 0, 1, 2, 3
+            synID_mapping.update({0:0, 1:1, 2:2, 3:3})
             index_s = 4
+            index_s_map = 4
         for lemma, synsets in lemma2synsets.iteritems():
-            if (wsd_method == "fullsoftmax" or wsd_method == "multitask") and lemma not in known_lemmas:
+            if wsd_method == "fullsoftmax" and lemma not in known_lemmas:
                 continue
             lemma2id[lemma] = index_l
             index_l += 1
@@ -279,6 +283,13 @@ def read_data_uniroma (path, sensekey2synset, lemma2synsets={}, lemma2id={}, syn
                 if synset not in synset2id:
                     synset2id[synset] = index_s
                     index_s += 1
+                if wsd_method == "multitask" and lemma in known_lemmas:
+                    indx_to_map = synset2id[synset]
+                    if indx_to_map in synID_mapping:
+                        continue
+                    synID_mapping[indx_to_map] = index_s_map
+                    index_s_map += 1
+
         for synset, id in synset2id.iteritems():
             id2synset[id] = synset
             pos = synset.split("-")[1]
@@ -316,10 +327,10 @@ def read_data_uniroma (path, sensekey2synset, lemma2synsets={}, lemma2id={}, syn
                 words_to_disambiguate.append(word)
             else:
                 word.append([-1])
-    return data, lemma2synsets, lemma2id, synset2id, id2synset, id2pos, known_lemmas, synset2freq
+    return data, lemma2synsets, lemma2id, synset2id, synID_mapping, id2synset, id2pos, known_lemmas, synset2freq
 
 
-def format_data (wsd_method, input_data, src2id, src2id_lemmas, synset2id, seq_width, word_embedding_case,
+def format_data (wsd_method, input_data, src2id, src2id_lemmas, synset2id, synID_mapping, seq_width, word_embedding_case,
                  word_embedding_input, sense_embeddings=None, dropword=0.0, mode="training", skip_unknown=False):
 
     inputs = []
@@ -426,9 +437,19 @@ def format_data (wsd_method, input_data, src2id, src2id_lemmas, synset2id, seq_w
                             if syn < len(sense_embeddings):
                                 current_label += sense_embeddings[syn]
                         current_label = current_label / len(word[-1])
-                        current_label_c = np.zeros(len(synset2id), dtype=float)
+                        current_label_c = np.zeros(len(synID_mapping), dtype=float)
                         for syn in word[-1]:
-                            current_label_c[syn] = 1.0/len(word[-1])
+                            if syn in synID_mapping:
+                                current_label_c[synID_mapping[syn]] = 1.0/len(word[-1])
+                            else:
+                                if word[2] == "NOUN":
+                                    current_label_c[synset2id['notseen-n']] = 1.0/len(word[-1])
+                                elif word[2] == "VERB":
+                                    current_label_c[synset2id['notseen-v']] = 1.0/len(word[-1])
+                                elif word[2] == "ADJ":
+                                    current_label_c[synset2id['notseen-a']] = 1.0/len(word[-1])
+                                elif word[2] == "ADV":
+                                    current_label_c[synset2id['notseen-r']] = 1.0/len(word[-1])
 
                 current_gold_synsets.append(word[-2])
                 current_labels.append(current_label)

@@ -230,7 +230,7 @@ class ModelVectorSimilarity:
 class ModelMultiTaskLearning:
 
     #TODO make model work with batches (no reason not to use them before the WSD part, I think)
-    def __init__(self, input_mode, synset2id, output_embedding_dim, lemma_embedding_dim, vocab_size_lemmas,
+    def __init__(self, input_mode, synID_mapping, output_embedding_dim, lemma_embedding_dim, vocab_size_lemmas,
                  batch_size, seq_width, n_hidden, val_inputs, val_seq_lengths, val_flags, val_indices,
                  val_labels_classification, val_labels_regression, word_embedding_dim, vocab_size_wordforms):
 
@@ -246,8 +246,8 @@ class ModelMultiTaskLearning:
             self.embeddings = tf.Variable(self.emb_placeholder, name="word_embeddings")
             self.set_embeddings = tf.assign(self.embeddings, self.emb_placeholder, validate_shape=False)
         #TODO pick an initializer
-        self.weights_classification = tf.get_variable(name="w_classification", shape=[2*n_hidden, len(synset2id)], dtype=tf.float32)
-        self.biases_classification = tf.get_variable(name="b_classification", shape=[len(synset2id)], dtype=tf.float32)
+        self.weights_classification = tf.get_variable(name="w_classification", shape=[2*n_hidden, len(synID_mapping)], dtype=tf.float32)
+        self.biases_classification = tf.get_variable(name="b_classification", shape=[len(synID_mapping)], dtype=tf.float32)
         self.weights_regression = tf.get_variable(name="w_regression", shape=[2*n_hidden, output_embedding_dim], dtype=tf.float32)
         self.biases_regression = tf.get_variable(name="b_regression", shape=[output_embedding_dim], dtype=tf.float32)
         self.train_inputs = tf.placeholder(tf.int32, shape=[batch_size, seq_width], name="train_inputs")
@@ -255,7 +255,7 @@ class ModelMultiTaskLearning:
         self.train_seq_lengths = tf.placeholder(tf.int32, shape=[batch_size], name="train_seq_lengths")
         self.train_model_flags = tf.placeholder(tf.bool, shape=[batch_size, seq_width], name="train_model_flags")
         self.train_labels_classification = tf.placeholder(tf.float32,
-                                                          shape=[None, len(synset2id)],
+                                                          shape=[None, len(synID_mapping)],
                                                           name="train_labels_classification")
         self.train_labels_regression = tf.placeholder(tf.float32,
                                                           shape=[None, output_embedding_dim],
@@ -560,7 +560,7 @@ if __name__ == "__main__":
         data, lemma2synsets, lemma2id, synset2id, id2synset, id2pos = \
             data_ops.read_folder_semcor(data, lexicon_mode=lexicon_mode, f_lex=lexicon)
     elif data_source == "uniroma":
-        data, lemma2synsets, lemma2id, synset2id, id2synset, id2pos, known_lemmas, synset2freq = \
+        data, lemma2synsets, lemma2id, synset2id, synID_mapping, id2synset, id2pos, known_lemmas, synset2freq = \
             data_ops.read_data_uniroma(data, sensekey2synset, wsd_method=wsd_method, f_lex=lexicon)
     test_data = args.test_data
     if test_data == "None":
@@ -577,9 +577,9 @@ if __name__ == "__main__":
             val_data, lemma2synsets, lemma2id, synset2id, id2synset, id2pos = \
             data_ops.read_folder_semcor(test_data, lemma2synsets, lemma2id, synset2id, mode="test")
         elif data_source == "uniroma":
-            val_data, lemma2synsets, lemma2id, synset2id, id2synset, id2pos, known_lemmas, synset2freq = \
-            data_ops.read_data_uniroma(test_data, sensekey2synset, lemma2synsets, lemma2id, synset2id, id2synset,
-                                       id2pos, known_lemmas, synset2freq, wsd_method=wsd_method, mode="test")
+            val_data, lemma2synsets, lemma2id, synset2id, synID_mapping, id2synset, id2pos, known_lemmas, synset2freq = \
+            data_ops.read_data_uniroma(test_data, sensekey2synset, lemma2synsets, lemma2id, synset2id, synID_mapping,
+                                       id2synset, id2pos, known_lemmas, synset2freq, wsd_method=wsd_method, mode="test")
     # get synset embeddings if a path to a model is passed
     if sense_embeddings_src_path != "None":
         if joint_embedding == "True":
@@ -616,11 +616,11 @@ if __name__ == "__main__":
     val_inputs, val_input_lemmas, val_seq_lengths, val_labels, val_words_to_disambiguate, \
     val_indices, val_lemmas_to_disambiguate, val_synsets_gold = data_ops.format_data\
                                                     (wsd_method, val_data, src2id, src2id_lemmas, synset2id,
-                                                    seq_width, word_embedding_case, word_embedding_input,
+                                                     synID_mapping, seq_width, word_embedding_case, word_embedding_input,
                                                      sense_embeddings, 0, "evaluation")
 
     # Function to calculate the accuracy on a batch of results and gold labels
-    def accuracy(logits, lemmas, synsets_gold):
+    def accuracy(logits, lemmas, synsets_gold, synset2id, synID_mapping=synID_mapping):
 
         matching_cases = 0
         eval_cases = 0
@@ -641,6 +641,8 @@ if __name__ == "__main__":
             else:
                 for synset in lemma2synsets[lemma]:
                     id = synset2id[synset]
+                    if len(synID_mapping) > 0:
+                        id = synID_mapping[id]
                     # make sure we only evaluate on synsets of the correct POS category
                     if synset.split("-")[1] != gold_pos:
                         continue
@@ -689,7 +691,7 @@ if __name__ == "__main__":
 
         batch = data[offset:(offset+batch_size)]
         inputs, input_lemmas, seq_lengths, labels, words_to_disambiguate, indices, lemmas, synsets_gold = \
-            data_ops.format_data(wsd_method, batch, src2id, src2id_lemmas, synset2id, seq_width,
+            data_ops.format_data(wsd_method, batch, src2id, src2id_lemmas, synset2id, synID_mapping, seq_width,
                                  word_embedding_case, word_embedding_input, sense_embeddings, dropword)
         return inputs, input_lemmas, seq_lengths, labels, words_to_disambiguate, indices, lemmas, synsets_gold
 
@@ -711,7 +713,7 @@ if __name__ == "__main__":
             output_embedding_dim = word_embedding_dim
         else:
             output_embedding_dim = lemma_embedding_dim
-        model = ModelMultiTaskLearning(word_embedding_input, synset2id, output_embedding_dim, lemma_embedding_dim,
+        model = ModelMultiTaskLearning(word_embedding_input, synID_mapping, output_embedding_dim, lemma_embedding_dim,
                                        vocab_size_lemmas, batch_size, seq_width, n_hidden, val_inputs, val_seq_lengths,
                                        val_words_to_disambiguate, val_indices, val_labels[0], val_labels[1],
                                        word_embedding_dim, vocab_size)
@@ -807,7 +809,7 @@ if __name__ == "__main__":
                 results.write('Minibatch accuracy: ' + str(accuracy(fetches[2], lemmas_to_disambiguate, synsets_gold)) + '\n')
                 results.write('Validation accuracy: ' + val_accuracy + '\n')
             elif wsd_method == "multitask":
-                val_accuracy = str(accuracy(fetches[4], val_lemmas_to_disambiguate, val_synsets_gold))
+                val_accuracy = str(accuracy(fetches[4], val_lemmas_to_disambiguate, val_synsets_gold, synID_mapping))
                 results.write('Minibatch classification accuracy: ' + str(accuracy(fetches[3], lemmas_to_disambiguate, synsets_gold)) + '\n')
                 results.write('Validation classification accuracy: ' + val_accuracy + '\n')
                 val_accuracy_r = str(accuracy_cosine_distance(fetches[6], val_lemmas_to_disambiguate, val_synsets_gold))

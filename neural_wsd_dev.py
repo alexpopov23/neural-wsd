@@ -805,15 +805,18 @@ if __name__ == "__main__":
                 results.write('Minibatch accuracy: ' + str(accuracy_cosine_distance(fetches[2], lemmas_to_disambiguate, synsets_gold)) + '\n')
                 results.write('Validation accuracy: ' + val_accuracy + '\n')
             elif wsd_method == "fullsoftmax":
-                val_accuracy = str(accuracy(fetches[3], val_lemmas_to_disambiguate, val_synsets_gold))
-                results.write('Minibatch accuracy: ' + str(accuracy(fetches[2], lemmas_to_disambiguate, synsets_gold)) + '\n')
+                val_accuracy = str(accuracy(fetches[3], val_lemmas_to_disambiguate, val_synsets_gold, synset2id))
+                results.write('Minibatch accuracy: ' + str(accuracy(fetches[2], lemmas_to_disambiguate, synsets_gold, synset2id))
+                              + '\n')
                 results.write('Validation accuracy: ' + val_accuracy + '\n')
             elif wsd_method == "multitask":
-                val_accuracy = str(accuracy(fetches[4], val_lemmas_to_disambiguate, val_synsets_gold, synID_mapping))
-                results.write('Minibatch classification accuracy: ' + str(accuracy(fetches[3], lemmas_to_disambiguate, synsets_gold)) + '\n')
+                val_accuracy = str(accuracy(fetches[4], val_lemmas_to_disambiguate, val_synsets_gold, synset2id, synID_mapping))
+                results.write('Minibatch classification accuracy: ' +
+                              str(accuracy(fetches[3], lemmas_to_disambiguate, synsets_gold, synset2id, synID_mapping)) + '\n')
                 results.write('Validation classification accuracy: ' + val_accuracy + '\n')
                 val_accuracy_r = str(accuracy_cosine_distance(fetches[6], val_lemmas_to_disambiguate, val_synsets_gold))
-                results.write('Minibatch regression accuracy: ' + str(accuracy_cosine_distance(fetches[5], lemmas_to_disambiguate, synsets_gold)) + '\n')
+                results.write('Minibatch regression accuracy: ' +
+                              str(accuracy_cosine_distance(fetches[5], lemmas_to_disambiguate, synsets_gold)) + '\n')
                 results.write('Validation regression accuracy: ' + val_accuracy_r + '\n')
 
                 # ops = [model.train_op, model.cost_c, model.cost_r, model.logits, model.val_logits,

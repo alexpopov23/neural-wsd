@@ -271,7 +271,8 @@ def read_data_uniroma (path, sensekey2synset, lemma2synsets={}, lemma2id={}, syn
         index_s_map = 0
         if wsd_method == "fullsoftmax" or wsd_method == "multitask":
             synset2id['notseen-n'], synset2id['notseen-v'], synset2id['notseen-a'], synset2id['notseen-r'] = 0, 1, 2, 3
-            synID_mapping.update({0:0, 1:1, 2:2, 3:3})
+            if wsd_method == "multitask":
+                synID_mapping.update({0:0, 1:1, 2:2, 3:3})
             index_s = 4
             index_s_map = 4
         for lemma, synsets in lemma2synsets.iteritems():

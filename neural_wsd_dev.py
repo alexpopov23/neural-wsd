@@ -124,6 +124,7 @@ class ModelVectorSimilarity:
             self.embeddings_lemmas = tf.Variable(self.emb_placeholder_lemmas, name="lemma_embeddings")
             self.set_embeddings_lemmas = tf.assign(self.embeddings_lemmas, self.emb_placeholder_lemmas,
                                                    validate_shape=False)
+        # self.embeddings_lemmas = tf.nn.l2_normalize(self.embeddings_lemmas, 0)
         if vocab_size_wordforms > 0:
             self.emb_placeholder = tf.placeholder(tf.float32, shape=[vocab_size_wordforms, word_embedding_dim],
                                                   name="placeholder_for_word_embeddings")
@@ -200,6 +201,7 @@ class ModelVectorSimilarity:
                 target_outputs = tf.gather(rnn_outputs, indices)
                 output_emb = tf.matmul(target_outputs, weights) + biases
                 losses = (labels - output_emb) ** 2
+                # losses = (tf.nn.l2_normalize(labels, 0) - tf.nn.l2_normalize(output_emb, 0)) ** 2
                 cost = tf.reduce_mean(losses)
 
             return cost, output_emb
@@ -387,7 +389,7 @@ def run_epoch(session, model, data, keep_prob, mode, multitask="False"):
             ops = [model.train_op, model.cost_c, model.cost_r, model.logits, model.val_logits,
                    model.output_emb, model.val_output_emb]
         else:
-            ops = [model.train_op, model.cost, model.logits, model.val_logits]
+            ops = [model.train_op, model.cost, model.logits, model.val_logits, model.embeddings_lemmas]
     elif mode == "application":
         ops = [model.val_logits]
     fetches = session.run(ops, feed_dict=feed_dict)
@@ -801,23 +803,29 @@ if __name__ == "__main__":
             if multitask == "True":
                 results.write('Averaged minibatch loss (similarity) at step ' + str(step) + ': ' + str(batch_loss_r / 100.0) + '\n')
             if wsd_method == "similarity":
-                val_accuracy = str(accuracy_cosine_distance(fetches[3], val_lemmas_to_disambiguate, val_synsets_gold))
+                val_accuracy = accuracy_cosine_distance(fetches[3], val_lemmas_to_disambiguate, val_synsets_gold)
                 results.write('Minibatch accuracy: ' + str(accuracy_cosine_distance(fetches[2], lemmas_to_disambiguate, synsets_gold)) + '\n')
-                results.write('Validation accuracy: ' + val_accuracy + '\n')
+                results.write('Validation accuracy: ' + str(val_accuracy) + '\n')
+                # Uncomment lines below in order to save the array with the modified word embeddings
+                # if val_accuracy > 55.0 and val_accuracy > best_accuracy:
+                #     with open(os.path.join(args.save_path, 'embeddings.pkl'), 'wb') as output:
+                #                 pickle.dump(fetches[-1], output, pickle.HIGHEST_PROTOCOL)
+                #     with open(os.path.join(args.save_path, 'src2id_lemmas.pkl'), 'wb') as output:
+                #         pickle.dump(src2id_lemmas, output, pickle.HIGHEST_PROTOCOL)
             elif wsd_method == "fullsoftmax":
-                val_accuracy = str(accuracy(fetches[3], val_lemmas_to_disambiguate, val_synsets_gold, synset2id))
+                val_accuracy = accuracy(fetches[3], val_lemmas_to_disambiguate, val_synsets_gold, synset2id)
                 results.write('Minibatch accuracy: ' + str(accuracy(fetches[2], lemmas_to_disambiguate, synsets_gold, synset2id))
                               + '\n')
-                results.write('Validation accuracy: ' + val_accuracy + '\n')
+                results.write('Validation accuracy: ' + str(val_accuracy) + '\n')
             elif wsd_method == "multitask":
-                val_accuracy = str(accuracy(fetches[4], val_lemmas_to_disambiguate, val_synsets_gold, synset2id, synID_mapping))
+                val_accuracy = accuracy(fetches[4], val_lemmas_to_disambiguate, val_synsets_gold, synset2id, synID_mapping)
                 results.write('Minibatch classification accuracy: ' +
                               str(accuracy(fetches[3], lemmas_to_disambiguate, synsets_gold, synset2id, synID_mapping)) + '\n')
-                results.write('Validation classification accuracy: ' + val_accuracy + '\n')
-                val_accuracy_r = str(accuracy_cosine_distance(fetches[6], val_lemmas_to_disambiguate, val_synsets_gold))
+                results.write('Validation classification accuracy: ' + str(val_accuracy) + '\n')
+                val_accuracy_r = accuracy_cosine_distance(fetches[6], val_lemmas_to_disambiguate, val_synsets_gold)
                 results.write('Minibatch regression accuracy: ' +
                               str(accuracy_cosine_distance(fetches[5], lemmas_to_disambiguate, synsets_gold)) + '\n')
-                results.write('Validation regression accuracy: ' + val_accuracy_r + '\n')
+                results.write('Validation regression accuracy: ' + str(val_accuracy_r) + '\n')
 
                 # ops = [model.train_op, model.cost_c, model.cost_r, model.logits, model.val_logits,
                 #        model.output_emb, model.val_output_emb]
@@ -849,7 +857,7 @@ if __name__ == "__main__":
         #         with open(os.path.join(args.save_path, 'id2synset.pkl'), 'wb') as output:
         #             pickle.dump(id2synset, output, pickle.HIGHEST_PROTOCOL)
 
-    results.write('\n\n\n' + 'Best result is: ' + best_accuracy)
+    results.write('\n\n\n' + 'Best result is: ' + str(best_accuracy))
     if multitask == "True":
-        results.write('\n\n\n' + 'Best result (similarity) is: ' + best_accuracy_r)
+        results.write('\n\n\n' + 'Best result (similarity) is: ' + str(best_accuracy_r))
     results.close()

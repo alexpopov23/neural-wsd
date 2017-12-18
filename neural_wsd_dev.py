@@ -525,12 +525,22 @@ if __name__ == "__main__":
             src2id["UNK"] = len(src2id)
             word_embeddings = np.concatenate((word_embeddings, [unk]))
 
+    # change this to turn off/on using WSD-modified word vectors
+    modified_embeddings = True
     if lemma_embeddings_src_path != None:
-        lemma_embeddings_model = KeyedVectors.load_word2vec_format(lemma_embeddings_src_path, binary=False)
-        lemma_embeddings = lemma_embeddings_model.syn0
-        id2src_lemmas = lemma_embeddings_model.index2word
-        for i, word in enumerate(id2src_lemmas):
-            src2id_lemmas[word] = i
+        if modified_embeddings:
+            files = os.listdir(lemma_embeddings_src_path)
+            for file in files:
+                if file.startswith("embeddings"):
+                    lemma_embeddings = pickle.load(open(os.path.join(lemma_embeddings_src_path, file), "rb"))
+                elif file.startswith("src2id"):
+                    src2id_lemmas = pickle.load(open(os.path.join(lemma_embeddings_src_path, file), "rb"))
+        else:
+            lemma_embeddings_model = KeyedVectors.load_word2vec_format(lemma_embeddings_src_path, binary=False)
+            lemma_embeddings = lemma_embeddings_model.syn0
+            id2src_lemmas = lemma_embeddings_model.index2word
+            for i, word in enumerate(id2src_lemmas):
+                src2id_lemmas[word] = i
         if "UNK" not in src2id_lemmas:
             # TODO use a random distribution rather
             unk = np.zeros(lemma_embedding_dim)

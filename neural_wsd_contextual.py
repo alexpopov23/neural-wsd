@@ -192,6 +192,7 @@ class ModelVectorSimilarity:
                                 rnn_outputs[1].append(rnn_output[1])
                             output_states.append(output_state_new)
                             output_state_old = output_state_new
+                            # output_state_old = output_state_new[0], output_state_new[0]
                     rnn_outputs[0], rnn_outputs[1] = tf.stack(rnn_outputs[0]), tf.stack(rnn_outputs[1])
 
                 rnn_outputs = tf.concat(rnn_outputs, -1)

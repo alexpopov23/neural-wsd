@@ -332,7 +332,7 @@ def read_data_uniroma (path, sensekey2synset, lemma2synsets={}, lemma2id={}, syn
 
 
 def format_data (wsd_method, input_data, src2id, src2id_lemmas, synset2id, synID_mapping, seq_width, word_embedding_case,
-                 word_embedding_input, sense_embeddings=None, dropword=0.0, mode="training", skip_unknown=False):
+                 word_embedding_input, sense_embeddings=None, dropword=0.0, mode="training", skip_unknown=False, use_pos=False):
 
     inputs = []
     inputs_lemmas = []
@@ -346,6 +346,8 @@ def format_data (wsd_method, input_data, src2id, src2id_lemmas, synset2id, synID
     ind_count = 0
     lemmas_to_disambiguate = []
     synsets_gold = []
+    pos_filters = []
+    pos_mapper = {"NOUN":"n", "VERB":"v", "ADJ":"a", "ADV":"r"}
     for i, sentence in enumerate(input_data):
         if len(sentence) > seq_width:
             sentence = sentence[:seq_width]
@@ -356,6 +358,7 @@ def format_data (wsd_method, input_data, src2id, src2id_lemmas, synset2id, synID
         current_labels_c = []
         current_wtd = []
         current_gold_synsets = []
+        current_pos_filters = []
         for j, word in enumerate(sentence):
             rand_num = random.uniform(0, 1)
             if rand_num < dropword:
@@ -375,14 +378,22 @@ def format_data (wsd_method, input_data, src2id, src2id_lemmas, synset2id, synID
                         current_input.append(src2id[word[0]])
                     else:
                         current_input.append(src2id["UNK"])
-                if word[1].lower() in src2id_lemmas:
-                    current_input_lemmas.append(src2id_lemmas[word[1].lower()])
+                if use_pos == True:
+                    lemma = word[1].lower() + "-" + word[2]
+                else:
+                    lemma = word[1].lower()
+                if lemma in src2id_lemmas:
+                    current_input_lemmas.append(src2id_lemmas[lemma])
                 else:
                     current_input_lemmas.append(src2id_lemmas["UNK"])
             elif word_embedding_input == "wordform":
                 if word_embedding_case == "lowercase":
-                    if word[0].lower() in src2id:
-                        current_input.append(src2id[word[0].lower()])
+                    if use_pos == True:
+                        wf = word[0].lower() + "-" + word[2]
+                    else:
+                        wf = word[0].lower()
+                    if wf in src2id:
+                        current_input.append(src2id[wf])
                     else:
                         current_input.append(src2id["UNK"])
                 elif word_embedding_case == "mixedcase":
@@ -403,8 +414,12 @@ def format_data (wsd_method, input_data, src2id, src2id_lemmas, synset2id, synID
                 # else:
                 #     current_input.append(src2id["UNK"])
                 if len(src2id_lemmas) > 0:
-                    if word[1].lower() in src2id_lemmas:
-                        current_input_lemmas.append(src2id_lemmas[word[1].lower()])
+                    if use_pos == True:
+                        lemma = word[1].lower() + "-" + word[2]
+                    else:
+                        lemma = word[1].lower()
+                    if lemma in src2id_lemmas:
+                        current_input_lemmas.append(src2id_lemmas[lemma])
                     else:
                         if current_flag == True:
                             current_input_lemmas.append(src2id_lemmas["UNK"])
@@ -453,6 +468,7 @@ def format_data (wsd_method, input_data, src2id, src2id_lemmas, synset2id, synID
                                     current_label_c[synset2id['notseen-r']] = 1.0/len(word[-1])
 
                 current_gold_synsets.append(word[-2])
+                current_pos_filters.append(pos_mapper[word[2]])
                 current_labels.append(current_label)
                 if wsd_method == "multitask":
                     current_labels_c.append(current_label_c)
@@ -489,6 +505,7 @@ def format_data (wsd_method, input_data, src2id, src2id_lemmas, synset2id, synID
         if wsd_method == "multitask":
             labels_c.extend(current_labels_c)
         synsets_gold.extend(current_gold_synsets)
+        pos_filters.extend(current_pos_filters)
         words_to_disambiguate.append(current_wtd)
     seq_lengths = np.asarray(seq_lengths)
     words_to_disambiguate = np.asarray(words_to_disambiguate)
@@ -500,7 +517,8 @@ def format_data (wsd_method, input_data, src2id, src2id_lemmas, synset2id, synID
     inputs = np.asarray(inputs)
     inputs_lemmas = np.asarray(inputs_lemmas)
 
-    return inputs, inputs_lemmas, seq_lengths, labels, words_to_disambiguate, indices, lemmas_to_disambiguate, synsets_gold
+    return inputs, inputs_lemmas, seq_lengths, labels, words_to_disambiguate, indices, lemmas_to_disambiguate, \
+           synsets_gold, pos_filters
 
 
 def softmax(w, t = 1.0):

@@ -565,7 +565,7 @@ if __name__ == "__main__":
     partition_point = float(args.partition_point)
     keep_prob = float(args.keep_prob)
     dropword = float(args.dropword)
-    use_pos = bool(args.use_pos)
+    use_pos = args.use_pos
 
     data = args.training_data
     known_lemmas = set()

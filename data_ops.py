@@ -378,7 +378,7 @@ def format_data (wsd_method, input_data, src2id, src2id_lemmas, synset2id, synID
                         current_input.append(src2id[word[0]])
                     else:
                         current_input.append(src2id["UNK"])
-                if use_pos == True:
+                if use_pos == "True":
                     lemma = word[1].lower() + "-" + word[2]
                 else:
                     lemma = word[1].lower()
@@ -388,7 +388,7 @@ def format_data (wsd_method, input_data, src2id, src2id_lemmas, synset2id, synID
                     current_input_lemmas.append(src2id_lemmas["UNK"])
             elif word_embedding_input == "wordform":
                 if word_embedding_case == "lowercase":
-                    if use_pos == True:
+                    if use_pos == "True":
                         wf = word[0].lower() + "-" + word[2]
                     else:
                         wf = word[0].lower()
@@ -414,7 +414,7 @@ def format_data (wsd_method, input_data, src2id, src2id_lemmas, synset2id, synID
                 # else:
                 #     current_input.append(src2id["UNK"])
                 if len(src2id_lemmas) > 0:
-                    if use_pos == True:
+                    if use_pos == "True":
                         lemma = word[1].lower() + "-" + word[2]
                     else:
                         lemma = word[1].lower()

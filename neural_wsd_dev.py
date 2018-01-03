@@ -389,7 +389,7 @@ def run_epoch(session, model, data, keep_prob, mode, multitask="False"):
             ops = [model.train_op, model.cost_c, model.cost_r, model.logits, model.val_logits,
                    model.output_emb, model.val_output_emb]
         else:
-            ops = [model.train_op, model.cost, model.logits, model.val_logits, model.embeddings_lemmas]
+            ops = [model.train_op, model.cost, model.logits, model.val_logits]
     elif mode == "application":
         ops = [model.val_logits]
     fetches = session.run(ops, feed_dict=feed_dict)
@@ -426,6 +426,8 @@ if __name__ == "__main__":
                         help='The path to the pretrained model with the lemma embeddings.')
     parser.add_argument('-lemma_embedding_dim', dest='lemma_embedding_dim', required=False, default="0",
                         help='Size of the lemma embedding vectors.')
+    parser.add_argument('-use_pos', dest='use_pos', required=False, default="False",
+                        help='Whether to append POS information to lemmas prior to embedding them.')
     parser.add_argument('-sense_embeddings_src_path', dest='sense_embeddings_src_path', required=False, default="None",
                         help='If a path to sense embeddings is passed to the script, label generation is done using them.')
     parser.add_argument('-synset_mapping', dest='synset_mapping', required=False,
@@ -526,7 +528,7 @@ if __name__ == "__main__":
             word_embeddings = np.concatenate((word_embeddings, [unk]))
 
     # change this to turn off/on using WSD-modified word vectors
-    modified_embeddings = True
+    modified_embeddings = False
     if lemma_embeddings_src_path != None:
         if modified_embeddings:
             files = os.listdir(lemma_embeddings_src_path)
@@ -563,6 +565,7 @@ if __name__ == "__main__":
     partition_point = float(args.partition_point)
     keep_prob = float(args.keep_prob)
     dropword = float(args.dropword)
+    use_pos = args.use_pos
 
     data = args.training_data
     known_lemmas = set()
@@ -626,13 +629,13 @@ if __name__ == "__main__":
         sense_embeddings = None
 
     val_inputs, val_input_lemmas, val_seq_lengths, val_labels, val_words_to_disambiguate, \
-    val_indices, val_lemmas_to_disambiguate, val_synsets_gold = data_ops.format_data\
+    val_indices, val_lemmas_to_disambiguate, val_synsets_gold, val_pos_filters = data_ops.format_data\
                                                     (wsd_method, val_data, src2id, src2id_lemmas, synset2id,
                                                      synID_mapping, seq_width, word_embedding_case, word_embedding_input,
-                                                     sense_embeddings, 0, "evaluation")
+                                                     sense_embeddings, 0, "evaluation", use_pos=use_pos)
 
     # Function to calculate the accuracy on a batch of results and gold labels
-    def accuracy(logits, lemmas, synsets_gold, synset2id, synID_mapping=synID_mapping):
+    def accuracy(logits, lemmas, synsets_gold, pos_filters, synset2id, synID_mapping=synID_mapping):
 
         matching_cases = 0
         eval_cases = 0
@@ -640,7 +643,8 @@ if __name__ == "__main__":
             max = -10000
             max_id = -1
             gold_synsets = synsets_gold[i]
-            gold_pos = gold_synsets[0].split("-")[1]
+            #gold_pos = gold_synsets[0].split("-")[1]
+            gold_pos = pos_filters[i]
             lemma = lemmas[i]
             if lemma not in known_lemmas:
                 if len(lemma2synsets[lemma]) == 1:
@@ -670,7 +674,7 @@ if __name__ == "__main__":
 
         return (100.0 * matching_cases) / eval_cases
 
-    def accuracy_cosine_distance (logits, lemmas, synsets_gold):
+    def accuracy_cosine_distance (logits, lemmas, synsets_gold, pos_filters):
 
         matching_cases = 0
         eval_cases = 0
@@ -679,7 +683,8 @@ if __name__ == "__main__":
             poss_synsets = lemma2synsets[lemma]
             best_fit = "None"
             max_similarity = -10000.0
-            gold_pos = synsets_gold[i][0].split("-")[1]
+            # gold_pos = synsets_gold[i][0].split("-")[1]
+            gold_pos = pos_filters[i]
             for j, synset in enumerate(poss_synsets):
                 if synset.split("-")[1] != gold_pos:
                     continue
@@ -702,10 +707,10 @@ if __name__ == "__main__":
     def new_batch (offset):
 
         batch = data[offset:(offset+batch_size)]
-        inputs, input_lemmas, seq_lengths, labels, words_to_disambiguate, indices, lemmas, synsets_gold = \
+        inputs, input_lemmas, seq_lengths, labels, words_to_disambiguate, indices, lemmas, synsets_gold, pos_filters = \
             data_ops.format_data(wsd_method, batch, src2id, src2id_lemmas, synset2id, synID_mapping, seq_width,
-                                 word_embedding_case, word_embedding_input, sense_embeddings, dropword)
-        return inputs, input_lemmas, seq_lengths, labels, words_to_disambiguate, indices, lemmas, synsets_gold
+                                 word_embedding_case, word_embedding_input, sense_embeddings, dropword, use_pos=use_pos)
+        return inputs, input_lemmas, seq_lengths, labels, words_to_disambiguate, indices, lemmas, synsets_gold, pos_filters
 
     model = None
     if wsd_method == "similarity":
@@ -796,7 +801,8 @@ if __name__ == "__main__":
     results.write(str(args) + '\n\n')
     for step in range(training_iters):
         offset = (step * batch_size) % (len(data) - batch_size)
-        inputs, input_lemmas, seq_lengths, labels, words_to_disambiguate, indices, lemmas_to_disambiguate, synsets_gold = new_batch(offset)
+        inputs, input_lemmas, seq_lengths, labels, words_to_disambiguate, indices, lemmas_to_disambiguate, \
+        synsets_gold, pos_filters = new_batch(offset)
         if (len(labels) == 0):
             continue
         input_data = [inputs, input_lemmas, seq_lengths, labels, words_to_disambiguate, indices]
@@ -813,8 +819,9 @@ if __name__ == "__main__":
             if multitask == "True":
                 results.write('Averaged minibatch loss (similarity) at step ' + str(step) + ': ' + str(batch_loss_r / 100.0) + '\n')
             if wsd_method == "similarity":
-                val_accuracy = accuracy_cosine_distance(fetches[3], val_lemmas_to_disambiguate, val_synsets_gold)
-                results.write('Minibatch accuracy: ' + str(accuracy_cosine_distance(fetches[2], lemmas_to_disambiguate, synsets_gold)) + '\n')
+                val_accuracy = accuracy_cosine_distance(fetches[3], val_lemmas_to_disambiguate, val_synsets_gold, val_pos_filters)
+                results.write('Minibatch accuracy: ' + str(accuracy_cosine_distance(fetches[2], lemmas_to_disambiguate,
+                                                                                    synsets_gold, pos_filters)) + '\n')
                 results.write('Validation accuracy: ' + str(val_accuracy) + '\n')
                 # Uncomment lines below in order to save the array with the modified word embeddings
                 # if val_accuracy > 55.0 and val_accuracy > best_accuracy:
@@ -823,18 +830,23 @@ if __name__ == "__main__":
                 #     with open(os.path.join(args.save_path, 'src2id_lemmas.pkl'), 'wb') as output:
                 #         pickle.dump(src2id_lemmas, output, pickle.HIGHEST_PROTOCOL)
             elif wsd_method == "fullsoftmax":
-                val_accuracy = accuracy(fetches[3], val_lemmas_to_disambiguate, val_synsets_gold, synset2id)
-                results.write('Minibatch accuracy: ' + str(accuracy(fetches[2], lemmas_to_disambiguate, synsets_gold, synset2id))
+                val_accuracy = accuracy(fetches[3], val_lemmas_to_disambiguate, val_synsets_gold, val_pos_filters, synset2id)
+                results.write('Minibatch accuracy: ' + str(accuracy(fetches[2], lemmas_to_disambiguate,
+                                                                    synsets_gold, pos_filters, synset2id))
                               + '\n')
                 results.write('Validation accuracy: ' + str(val_accuracy) + '\n')
             elif wsd_method == "multitask":
-                val_accuracy = accuracy(fetches[4], val_lemmas_to_disambiguate, val_synsets_gold, synset2id, synID_mapping)
+                val_accuracy = accuracy(fetches[4], val_lemmas_to_disambiguate, val_synsets_gold, val_pos_filters,
+                                        synset2id, synID_mapping)
                 results.write('Minibatch classification accuracy: ' +
-                              str(accuracy(fetches[3], lemmas_to_disambiguate, synsets_gold, synset2id, synID_mapping)) + '\n')
+                              str(accuracy(fetches[3], lemmas_to_disambiguate, synsets_gold, pos_filters,
+                                           synset2id, synID_mapping)) + '\n')
                 results.write('Validation classification accuracy: ' + str(val_accuracy) + '\n')
-                val_accuracy_r = accuracy_cosine_distance(fetches[6], val_lemmas_to_disambiguate, val_synsets_gold)
+                val_accuracy_r = accuracy_cosine_distance(fetches[6], val_lemmas_to_disambiguate, val_synsets_gold,
+                                                          val_pos_filters)
                 results.write('Minibatch regression accuracy: ' +
-                              str(accuracy_cosine_distance(fetches[5], lemmas_to_disambiguate, synsets_gold)) + '\n')
+                              str(accuracy_cosine_distance(fetches[5], lemmas_to_disambiguate, synsets_gold,
+                                                           pos_filters)) + '\n')
                 results.write('Validation regression accuracy: ' + str(val_accuracy_r) + '\n')
 
                 # ops = [model.train_op, model.cost_c, model.cost_r, model.logits, model.val_logits,

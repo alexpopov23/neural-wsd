@@ -103,6 +103,7 @@ class ModelSingleSoftmax:
         self.cost, self.logits, self.losses = biRNN_WSD(embedded_inputs, self.train_seq_lengths, self.train_indices,
                                            self.weights, self.biases, self.train_labels, True, self.keep_prob)
         self.train_op = tf.train.GradientDescentOptimizer(learning_rate).minimize(self.cost)
+        #self.train_op = tf.train.AdadeltaOptimizer(learning_rate).minimize(self.cost)
         if vocab_size_lemmas > 0:
             embedded_inputs = embed_inputs(self.val_inputs, self.val_inputs_lemmas)
         else:
@@ -605,7 +606,7 @@ if __name__ == "__main__":
         else:
             sense_embeddings_model = KeyedVectors.load_word2vec_format(sense_embeddings_src_path, binary=False)
         sense_embeddings_full = sense_embeddings_model.syn0
-        sense_embeddings = np.zeros(shape=(len(synset2id), 300), dtype=float)
+        sense_embeddings = np.zeros(shape=(len(synset2id), lemma_embedding_dim), dtype=float)
         id2synset_embeddings = sense_embeddings_model.index2word
         if synset_mapping != None:
             bn2wn = pickle.load(open(synset_mapping, "rb"))
@@ -632,7 +633,7 @@ if __name__ == "__main__":
     val_indices, val_lemmas_to_disambiguate, val_synsets_gold, val_pos_filters = data_ops.format_data\
                                                     (wsd_method, val_data, src2id, src2id_lemmas, synset2id,
                                                      synID_mapping, seq_width, word_embedding_case, word_embedding_input,
-                                                     sense_embeddings, 0, "evaluation", use_pos=use_pos)
+                                                     sense_embeddings, 0, lemma_embedding_dim, "evaluation", use_pos=use_pos)
 
     # Function to calculate the accuracy on a batch of results and gold labels
     def accuracy(logits, lemmas, synsets_gold, pos_filters, synset2id, synID_mapping=synID_mapping):
@@ -709,7 +710,8 @@ if __name__ == "__main__":
         batch = data[offset:(offset+batch_size)]
         inputs, input_lemmas, seq_lengths, labels, words_to_disambiguate, indices, lemmas, synsets_gold, pos_filters = \
             data_ops.format_data(wsd_method, batch, src2id, src2id_lemmas, synset2id, synID_mapping, seq_width,
-                                 word_embedding_case, word_embedding_input, sense_embeddings, dropword, use_pos=use_pos)
+                                 word_embedding_case, word_embedding_input, sense_embeddings, dropword,
+                                 lemma_embedding_dim=lemma_embedding_dim, use_pos=use_pos)
         return inputs, input_lemmas, seq_lengths, labels, words_to_disambiguate, indices, lemmas, synsets_gold, pos_filters
 
     model = None
@@ -799,6 +801,7 @@ if __name__ == "__main__":
         os.makedirs(args.save_path)
     results = open(os.path.join(args.save_path, 'results.txt'), "a", 0)
     results.write(str(args) + '\n\n')
+    model_path = os.path.join(args.save_path, "model")
     for step in range(training_iters):
         offset = (step * batch_size) % (len(data) - batch_size)
         inputs, input_lemmas, seq_lengths, labels, words_to_disambiguate, indices, lemmas_to_disambiguate, \
@@ -867,17 +870,19 @@ if __name__ == "__main__":
         if multitask == "True" and val_accuracy_r > best_accuracy_r:
             best_accurary_r = val_accuracy_r
 
-        # if (args.save_path != "None" and step == 25000 or step > 25000 and val_accuracy == best_accuracy):
-        #     saver.save(session, os.path.join(args.save_path, "model.ckpt"), global_step=step)
-        #     if (step == 25000):
-        #         with open(os.path.join(args.save_path, 'lemma2synsets.pkl'), 'wb') as output:
-        #             pickle.dump(lemma2synsets, output, pickle.HIGHEST_PROTOCOL)
-        #         with open(os.path.join(args.save_path, 'lemma2id.pkl'), 'wb') as output:
-        #             pickle.dump(lemma2id, output, pickle.HIGHEST_PROTOCOL)
-        #         with open(os.path.join(args.save_path, 'synset2id.pkl'), 'wb') as output:
-        #             pickle.dump(synset2id, output, pickle.HIGHEST_PROTOCOL)
-        #         with open(os.path.join(args.save_path, 'id2synset.pkl'), 'wb') as output:
-        #             pickle.dump(id2synset, output, pickle.HIGHEST_PROTOCOL)
+        if (args.save_path != "None" and step == 25000 or step > 25000 and val_accuracy == best_accuracy):
+            for file in os.listdir(model_path):
+                os.remove(os.path.join(model_path, file))
+            saver.save(session, os.path.join(args.save_path, "model/model.ckpt"), global_step=step)
+            if (step == 25000):
+                with open(os.path.join(args.save_path, 'lemma2synsets.pkl'), 'wb') as output:
+                    pickle.dump(lemma2synsets, output, pickle.HIGHEST_PROTOCOL)
+                with open(os.path.join(args.save_path, 'lemma2id.pkl'), 'wb') as output:
+                    pickle.dump(lemma2id, output, pickle.HIGHEST_PROTOCOL)
+                with open(os.path.join(args.save_path, 'synset2id.pkl'), 'wb') as output:
+                    pickle.dump(synset2id, output, pickle.HIGHEST_PROTOCOL)
+                with open(os.path.join(args.save_path, 'id2synset.pkl'), 'wb') as output:
+                    pickle.dump(id2synset, output, pickle.HIGHEST_PROTOCOL)
 
     results.write('\n\n\n' + 'Best result is: ' + str(best_accuracy))
     if multitask == "True":

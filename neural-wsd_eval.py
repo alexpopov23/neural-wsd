@@ -2,7 +2,6 @@ import argparse
 import sys
 import pickle
 import os
-import collections
 import random
 
 import tensorflow as tf
@@ -743,10 +742,12 @@ if __name__ == "__main__":
     saver = tf.train.Saver()
     #session.run(tf.global_variables_initializer())
     if mode == "application":
-        saver.restore(session, os.path.join(args.save_path, "model/checkpoint"))
+        saver.restore(session, os.path.join(args.save_path, "model/model.ckpt-97700"))
         #TODO: finish this module
-        # fetches = run_epoch(session, model, val_data, mode="application")
-        # #lemma2synsets =
+        fetches = run_epoch(session, model, val_data, 1, mode="application")
+        acc = accuracy(fetches[0], val_lemmas_to_disambiguate, val_synsets_gold, val_pos_filters, synset2id)
+        print acc
+        #lemma2synsets =
         # for i in range(len(fetches)):
         #     print "Input sentence is: ",
         #     for j in xrange(len(val_data[0][i])):
@@ -764,7 +765,7 @@ if __name__ == "__main__":
         #     #     # Print just the top scoring candidate for each word
         #     #     #print id2target[np.argmax(_predictions[k])] + " ",
         #     # print "\n"
-        # exit()
+        exit()
     else:
         init = tf.initialize_all_variables()
         if wsd_method == "similarity":

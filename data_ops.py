@@ -332,7 +332,8 @@ def read_data_uniroma (path, sensekey2synset, lemma2synsets={}, lemma2id={}, syn
 
 
 def format_data (wsd_method, input_data, src2id, src2id_lemmas, synset2id, synID_mapping, seq_width, word_embedding_case,
-                 word_embedding_input, sense_embeddings=None, dropword=0.0, mode="training", skip_unknown=False, use_pos=False):
+                 word_embedding_input, sense_embeddings=None, dropword=0.0, lemma_embedding_dim=None, mode="training",
+                 skip_unknown=False, use_pos=False):
 
     inputs = []
     inputs_lemmas = []
@@ -428,7 +429,7 @@ def format_data (wsd_method, input_data, src2id, src2id_lemmas, synset2id, synID
                         else:
                             current_input_lemmas.append(src2id_lemmas["UNK"])
             if (word[-1][0] > -1):
-                current_label = np.zeros([300], dtype=float)
+                current_label = np.zeros([lemma_embedding_dim], dtype=float)
                 if wsd_method == "similarity":
                     # TODO fix the handling of lists of synsets, like in fullmax case
                     #if sense_embeddings != None:

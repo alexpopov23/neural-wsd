@@ -332,8 +332,8 @@ def read_data_uniroma (path, sensekey2synset, lemma2synsets={}, lemma2id={}, syn
 
 
 def format_data (wsd_method, input_data, src2id, src2id_lemmas, synset2id, synID_mapping, seq_width, word_embedding_case,
-                 word_embedding_input, sense_embeddings=None, dropword=0.0, lemma_embedding_dim=None, mode="training",
-                 skip_unknown=False, use_pos=False):
+                 word_embedding_input, input_embeddings=None, sense_embeddings=None, dropword=0.0, lemma_embedding_dim=None,
+                 mode="training", optimize_all=False, skip_unknown=False, use_pos=False):
 
     inputs = []
     inputs_lemmas = []
@@ -349,6 +349,7 @@ def format_data (wsd_method, input_data, src2id, src2id_lemmas, synset2id, synID
     synsets_gold = []
     pos_filters = []
     pos_mapper = {"NOUN":"n", "VERB":"v", "ADJ":"a", "ADV":"r"}
+    zero_label = np.zeros([lemma_embedding_dim], dtype=float)
     for i, sentence in enumerate(input_data):
         if len(sentence) > seq_width:
             sentence = sentence[:seq_width]
@@ -428,15 +429,28 @@ def format_data (wsd_method, input_data, src2id, src2id_lemmas, synset2id, synID
                             continue
                         else:
                             current_input_lemmas.append(src2id_lemmas["UNK"])
-            if (word[-1][0] > -1):
+            if (word[-1][0] > -1) or optimize_all == "True":
                 current_label = np.zeros([lemma_embedding_dim], dtype=float)
                 if wsd_method == "similarity":
                     # TODO fix the handling of lists of synsets, like in fullmax case
                     #if sense_embeddings != None:
-                    for syn in word[-1]:
-                        if syn < len(sense_embeddings):
-                            current_label += sense_embeddings[syn]
-                    current_label = current_label / len(word[-1])
+                    if word[-1][0] > -1:
+                        for syn in word[-1]:
+                            if syn < len(sense_embeddings):
+                                current_label += sense_embeddings[syn]
+                        current_label = current_label / len(word[-1])
+                    elif optimize_all == "True":
+                        if word_embedding_input == "wordform":
+                            if word_embedding_case == "lowercase":
+                                wordform = word[0].lower()
+                            elif word_embedding_case == "mixedcase":
+                                wordform = word[0]
+                            if wordform in src2id:
+                                current_label = input_embeddings[src2id[wordform]]
+                        elif word_embedding_input == "lemma":
+                            lemma = word[1]
+                            if lemma in src2id_lemmas:
+                                current_label = input_embeddings[src2id_lemmas[lemma]]
                     # In case no non-zero embedding is found for the synset, don't include it in the training data
                     if mode == "training" and np.amax(current_label) == 0.0:
                         current_wtd.append(False)
@@ -468,13 +482,14 @@ def format_data (wsd_method, input_data, src2id, src2id_lemmas, synset2id, synID
                                 elif word[2] == "ADV":
                                     current_label_c[synset2id['notseen-r']] = 1.0/len(word[-1])
 
-                current_gold_synsets.append(word[-2])
-                current_pos_filters.append(pos_mapper[word[2]])
+                if word[-1][0] > -1:
+                    current_gold_synsets.append(word[-2])
+                    current_pos_filters.append(pos_mapper[word[2]])
+                    if wsd_method == "multitask":
+                        current_labels_c.append(current_label_c)
+                    indices.append(copy(ind_count))
+                    lemmas_to_disambiguate.append(word[1])
                 current_labels.append(current_label)
-                if wsd_method == "multitask":
-                    current_labels_c.append(current_label_c)
-                indices.append(copy(ind_count))
-                lemmas_to_disambiguate.append(word[1])
             # else:
             #     current_label = np.zeros(1, dtype=int)
             current_wtd.append(current_flag)
@@ -501,6 +516,8 @@ def format_data (wsd_method, input_data, src2id, src2id_lemmas, synset2id, synID
             inputs.append(current_input)
         if len(src2id_lemmas) > 0:
             inputs_lemmas.append(current_input_lemmas)
+        if optimize_all == "True" and len(current_labels) < seq_width:
+            current_labels += (seq_width - len(current_labels)) * [zero_label]
         # extend results in a 2-d tensor where sentences are concatenated; append results in a 3-d tensor
         labels.extend(current_labels)
         if wsd_method == "multitask":

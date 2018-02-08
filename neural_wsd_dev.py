@@ -117,7 +117,7 @@ class ModelVectorSimilarity:
     #TODO make model work with batches (no reason not to use them before the WSD part, I think)
     def __init__(self, input_mode, output_embedding_dim, lemma_embedding_dim, vocab_size_lemmas, batch_size, seq_width,
                  n_hidden, val_inputs, val_seq_lengths, val_flags, val_indices, val_labels, word_embedding_dim,
-                 vocab_size_wordforms):
+                 vocab_size_wordforms, optimize_all):
 
         if vocab_size_lemmas > 0:
             self.emb_placeholder_lemmas = tf.placeholder(tf.float32, shape=[vocab_size_lemmas, lemma_embedding_dim],
@@ -199,13 +199,20 @@ class ModelVectorSimilarity:
                 rnn_outputs = tf.concat(rnn_outputs, 2)
                 scope.reuse_variables()
                 rnn_outputs = tf.reshape(rnn_outputs, [-1, 2*n_hidden])
-                target_outputs = tf.gather(rnn_outputs, indices)
+                if optimize_all == "False":
+                    target_outputs = tf.gather(rnn_outputs, indices)
+                else:
+                    target_outputs = rnn_outputs
                 output_emb = tf.matmul(target_outputs, weights) + biases
                 losses = (labels - output_emb) ** 2
                 # losses = (tf.nn.l2_normalize(labels, 0) - tf.nn.l2_normalize(output_emb, 0)) ** 2
                 cost = tf.reduce_mean(losses)
+                output_emb_all = []
+                if optimize_all == "True":
+                    output_emb_all = output_emb
+                    output_emb = tf.gather(output_emb, indices)
 
-            return cost, output_emb
+            return cost, output_emb, output_emb_all
 
 
         # if lemma embeddings are passed, then concatenate them with the word embeddings
@@ -215,7 +222,7 @@ class ModelVectorSimilarity:
             embedded_inputs = embed_inputs(self.train_inputs_lemmas)
         elif input_mode == "wordform":
             embedded_inputs = embed_inputs(self.train_inputs)
-        self.cost, self.logits = biRNN_WSD(embedded_inputs, self.train_seq_lengths, self.train_indices,
+        self.cost, self.logits, self.emb_all = biRNN_WSD(embedded_inputs, self.train_seq_lengths, self.train_indices,
                                            self.weights, self.biases, self.train_labels, True, self.keep_prob)
         self.train_op = tf.train.GradientDescentOptimizer(learning_rate).minimize(self.cost)
         # self.train_op = tf.train.AdamOptimizer(learning_rate).minimize(self.cost)
@@ -226,7 +233,7 @@ class ModelVectorSimilarity:
         elif input_mode == "wordform":
             embedded_inputs = embed_inputs(self.val_inputs)
         tf.get_variable_scope().reuse_variables()
-        _, self.val_logits = biRNN_WSD(embedded_inputs, self.val_seq_lengths, self.val_indices,
+        _, self.val_logits, self.val_emb_all = biRNN_WSD(embedded_inputs, self.val_seq_lengths, self.val_indices,
                                        self.weights, self.biases, self.val_labels, False)
 
 
@@ -390,7 +397,7 @@ def run_epoch(session, model, data, keep_prob, mode, multitask="False"):
             ops = [model.train_op, model.cost_c, model.cost_r, model.logits, model.val_logits,
                    model.output_emb, model.val_output_emb]
         else:
-            ops = [model.train_op, model.cost, model.logits, model.val_logits]
+            ops = [model.train_op, model.cost, model.logits, model.val_logits, model.val_emb_all]
     elif mode == "application":
         ops = [model.val_logits]
     fetches = session.run(ops, feed_dict=feed_dict)
@@ -411,6 +418,8 @@ if __name__ == "__main__":
                         help='Which method is used for loading the pretrained embeddings: tensorflow, gensim, glove?')
     parser.add_argument('-joint_embedding', dest='joint_embedding', required=False,
                         help='Whether lemmas and synsets are jointly embedded.')
+    parser.add_argument('-optimize_all', dest='optimize_all', required=False, default="False",
+                        help='Whether all input words should be guessed by the NN, or only the sense-tagged ones.')
     parser.add_argument('-word_embedding_input', dest='word_embedding_input', required=False, default="wordform",
                         help='Are these embeddings of wordforms or lemmas (options are: wordform, lemma, joint)?')
     parser.add_argument('-word_embedding_case', dest='word_embedding_case', required=False, default="lowercase",
@@ -469,6 +478,7 @@ if __name__ == "__main__":
     mode = args.mode
     wsd_method = args.wsd_method
     joint_embedding = args.joint_embedding
+    optimize_all = args.optimize_all
     if wsd_method == "multitask":
         multitask = "True"
     else:
@@ -629,11 +639,19 @@ if __name__ == "__main__":
     else:
         sense_embeddings = None
 
+    input_embeddings = None
+    if optimize_all == "True":
+        if word_embedding_input == "wordform":
+            input_embeddings = word_embeddings
+        elif word_embedding_input == "lemma":
+            input_embeddings = lemma_embeddings
+
     val_inputs, val_input_lemmas, val_seq_lengths, val_labels, val_words_to_disambiguate, \
     val_indices, val_lemmas_to_disambiguate, val_synsets_gold, val_pos_filters = data_ops.format_data\
                                                     (wsd_method, val_data, src2id, src2id_lemmas, synset2id,
                                                      synID_mapping, seq_width, word_embedding_case, word_embedding_input,
-                                                     sense_embeddings, 0, lemma_embedding_dim, "evaluation", use_pos=use_pos)
+                                                     input_embeddings, sense_embeddings, 0, lemma_embedding_dim,
+                                                     "evaluation", optimize_all=optimize_all, use_pos=use_pos)
 
     # Function to calculate the accuracy on a batch of results and gold labels
     def accuracy(logits, lemmas, synsets_gold, pos_filters, synset2id, synID_mapping=synID_mapping):
@@ -710,8 +728,8 @@ if __name__ == "__main__":
         batch = data[offset:(offset+batch_size)]
         inputs, input_lemmas, seq_lengths, labels, words_to_disambiguate, indices, lemmas, synsets_gold, pos_filters = \
             data_ops.format_data(wsd_method, batch, src2id, src2id_lemmas, synset2id, synID_mapping, seq_width,
-                                 word_embedding_case, word_embedding_input, sense_embeddings, dropword,
-                                 lemma_embedding_dim=lemma_embedding_dim, use_pos=use_pos)
+                                 word_embedding_case, word_embedding_input, input_embeddings, sense_embeddings, dropword,
+                                 lemma_embedding_dim=lemma_embedding_dim, optimize_all=optimize_all, use_pos=use_pos)
         return inputs, input_lemmas, seq_lengths, labels, words_to_disambiguate, indices, lemmas, synsets_gold, pos_filters
 
     model = None
@@ -721,8 +739,8 @@ if __name__ == "__main__":
         else:
             output_embedding_dim = lemma_embedding_dim
         model = ModelVectorSimilarity(word_embedding_input, output_embedding_dim, lemma_embedding_dim, vocab_size_lemmas,
-                                      batch_size, seq_width, n_hidden, val_inputs, val_seq_lengths,
-                                      val_words_to_disambiguate, val_indices, val_labels, word_embedding_dim, vocab_size)
+                                      batch_size, seq_width, n_hidden, val_inputs, val_seq_lengths, val_words_to_disambiguate,
+                                      val_indices, val_labels, word_embedding_dim, vocab_size, optimize_all)
     elif wsd_method == "fullsoftmax":
         model = ModelSingleSoftmax(synset2id, word_embedding_dim, vocab_size, batch_size, seq_width, n_hidden,
                                    n_hidden_layers, val_inputs, val_input_lemmas, val_seq_lengths, val_words_to_disambiguate,

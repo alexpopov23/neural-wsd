@@ -407,6 +407,8 @@ if __name__ == "__main__":
                         help="Is this is a training run or an application run? Options: train, application")
     parser.add_argument('-wsd_method', dest='wsd_method', required=True, default="fullsoftmax",
                         help='Which method is used for the final, WSD step: similarity or fullsoftmax?')
+    parser.add_argument('-pos_classifier', dest='pos_classifier', required=False, default="False",
+                        help='Should the system learn to annotate for POS as well?')
     parser.add_argument('-word_embedding_method', dest='word_embedding_method', required=False, default="tensorflow",
                         help='Which method is used for loading the pretrained embeddings: tensorflow, gensim, glove?')
     parser.add_argument('-joint_embedding', dest='joint_embedding', required=False,
@@ -567,14 +569,16 @@ if __name__ == "__main__":
     keep_prob = float(args.keep_prob)
     dropword = float(args.dropword)
     use_pos = args.use_pos
+    pos_classifier = args.pos_classifier
 
     data = args.training_data
     known_lemmas = set()
     # Path to the mapping between WordNET sense keys and synset IDs; the file must reside in the folder with the training data
-    sensekey2synset = pickle.load(open(os.path.join(data, "sensekey2synset.pkl"), "rb"))
+    if data_source == "uniroma":
+        sensekey2synset = pickle.load(open(os.path.join(data, "sensekey2synset.pkl"), "rb"))
     if data_source == "naf":
-        data, lemma2synsets, lemma2id, synset2id, id2synset, id2pos = \
-            data_ops.read_folder_semcor(data, lexicon_mode=lexicon_mode, f_lex=lexicon)
+        data, lemma2synsets, lemma2id, synset2id, synID_mapping, id2synset, id2pos, known_lemmas, pos_types = \
+            data_ops.read_folder_semcor(data, wsd_method=wsd_method, f_lex=lexicon)
     elif data_source == "uniroma":
         data, lemma2synsets, lemma2id, synset2id, synID_mapping, id2synset, id2pos, known_lemmas, synset2freq = \
             data_ops.read_data_uniroma(data, sensekey2synset, wsd_method=wsd_method, f_lex=lexicon)
@@ -590,7 +594,7 @@ if __name__ == "__main__":
     else:
         train_data = data
         if data_source == "naf":
-            val_data, lemma2synsets, lemma2id, synset2id, id2synset, id2pos = \
+            val_data, lemma2synsets, lemma2id, synset2id, synID_mapping, id2synset, id2pos, known_lemmas, pos_types = \
             data_ops.read_folder_semcor(test_data, lemma2synsets, lemma2id, synset2id, mode="test")
         elif data_source == "uniroma":
             val_data, lemma2synsets, lemma2id, synset2id, synID_mapping, id2synset, id2pos, known_lemmas, synset2freq = \
@@ -633,7 +637,8 @@ if __name__ == "__main__":
     val_indices, val_lemmas_to_disambiguate, val_synsets_gold, val_pos_filters = data_ops.format_data\
                                                     (wsd_method, val_data, src2id, src2id_lemmas, synset2id,
                                                      synID_mapping, seq_width, word_embedding_case, word_embedding_input,
-                                                     sense_embeddings, 0, lemma_embedding_dim, "evaluation", use_pos=use_pos)
+                                                     sense_embeddings, 0, lemma_embedding_dim, pos_types, "evaluation",
+                                                     use_pos=use_pos, pos_classifier=pos_classifier)
 
     # Function to calculate the accuracy on a batch of results and gold labels
     def accuracy(logits, lemmas, synsets_gold, pos_filters, synset2id, synID_mapping=synID_mapping):
@@ -648,13 +653,14 @@ if __name__ == "__main__":
             gold_pos = pos_filters[i]
             lemma = lemmas[i]
             if lemma not in known_lemmas:
-                if len(lemma2synsets[lemma]) == 1:
-                    max_id = lemma2synsets[lemma][0]
-                elif len(lemma2synsets[lemma]) > 1:
-                    if synset2freq[lemma] > 0:
-                        max_id = synset2freq[lemma]
-                    else:
-                        max_id = random.choice(lemma2synsets[lemma])
+                max_id = lemma2synsets[lemma][0]
+                # if len(lemma2synsets[lemma]) == 1:
+                #     max_id = lemma2synsets[lemma][0]
+                # elif len(lemma2synsets[lemma]) > 1:
+                #     if synset2freq[lemma] > 0:
+                #         max_id = synset2freq[lemma]
+                #     else:
+                #         max_id = random.choice(lemma2synsets[lemma])
             else:
                 for synset in lemma2synsets[lemma]:
                     id = synset2id[synset]
@@ -711,7 +717,7 @@ if __name__ == "__main__":
         inputs, input_lemmas, seq_lengths, labels, words_to_disambiguate, indices, lemmas, synsets_gold, pos_filters = \
             data_ops.format_data(wsd_method, batch, src2id, src2id_lemmas, synset2id, synID_mapping, seq_width,
                                  word_embedding_case, word_embedding_input, sense_embeddings, dropword,
-                                 lemma_embedding_dim=lemma_embedding_dim, use_pos=use_pos)
+                                 lemma_embedding_dim=lemma_embedding_dim, pos_types=pos_types, use_pos=use_pos, pos_classifier=pos_classifier)
         return inputs, input_lemmas, seq_lengths, labels, words_to_disambiguate, indices, lemmas, synsets_gold, pos_filters
 
     model = None

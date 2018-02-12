@@ -20,7 +20,7 @@ class ModelSingleSoftmax:
     def __init__(self, synset2id, word_embedding_dim, vocab_size,
                  batch_size, seq_width, n_hidden, n_hidden_layers,
                  val_inputs, val_input_lemmas, val_seq_lengths, val_flags, val_indices, val_labels,
-                 lemma_embedding_dim, vocab_size_lemmas):
+                 lemma_embedding_dim, vocab_size_lemmas, pos_classifier="False", pos_classes=0, val_pos_labels=None):
         self.emb_placeholder = tf.placeholder(tf.float32, shape=[vocab_size, word_embedding_dim])
         self.embeddings = tf.Variable(self.emb_placeholder)
         self.set_embeddings = tf.assign(self.embeddings, self.emb_placeholder, validate_shape=False)
@@ -37,6 +37,16 @@ class ModelSingleSoftmax:
         self.train_model_flags = tf.placeholder(tf.bool, shape=[batch_size, seq_width])
         self.train_labels = tf.placeholder(tf.int32, shape=[None, len(synset2id)])
         self.train_indices = tf.placeholder(tf.int32, shape=[None])
+        if pos_classifier == "True":
+            self.weights_pos = tf.get_variable(name="softmax_pos-w", shape=[2*n_hidden, pos_classes], dtype=tf.float32)
+            self.biases_pos = tf.get_variable(name="softmax_pos-b", shape=[pos_classes], dtype=tf.float32)
+            self.labels_pos = tf.placeholder(name="pos_labels", shape=[None, pos_classes], dtype=tf.int32)
+            self.val_labels_pos = tf.constant(val_pos_labels, tf.int32)
+        else:
+            self.weights_pos = None
+            self.biases_pos = None
+            self.labels = None
+            self.val_labels_pos = None
         self.val_inputs = tf.constant(val_inputs, tf.int32)
         if vocab_size_lemmas > 0:
             self.val_inputs_lemmas = tf.constant(val_input_lemmas, tf.int32)
@@ -56,7 +66,8 @@ class ModelSingleSoftmax:
 
             return embedded_inputs
 
-        def biRNN_WSD (embedded_inputs, seq_lengths, indices, weights, biases, labels, is_training, keep_prob):
+        def biRNN_WSD (embedded_inputs, seq_lengths, indices, weights, biases, labels, is_training, keep_prob,
+                       pos_classifier="False", weights_pos=None, biases_pos=None, labels_pos=None):
 
             with tf.variable_scope(tf.get_variable_scope()) as scope:
 
@@ -88,20 +99,28 @@ class ModelSingleSoftmax:
                 rnn_outputs = tf.concat(rnn_outputs, 2)
                 scope.reuse_variables()
                 rnn_outputs = tf.reshape(rnn_outputs, [-1, 2*n_hidden])
+                logits_pos = []
+                if pos_classifier == "True":
+                    logits_pos = tf.matmul(rnn_outputs, weights_pos) + biases_pos
+                    losses_pos = tf.nn.softmax_cross_entropy_with_logits(logits=logits_pos, labels=labels_pos)
+                    cost_pos = tf.reduce_mean(losses_pos)
                 target_outputs = tf.gather(rnn_outputs, indices)
                 logits = tf.matmul(target_outputs, weights) + biases
                 losses = tf.nn.softmax_cross_entropy_with_logits(logits=logits, labels=labels)
                 cost = tf.reduce_mean(losses)
+                if pos_classifier == "True":
+                    cost += cost_pos
 
-            return cost, logits, losses
+            return cost, logits, losses, logits_pos
 
         # if lemma embeddings are passed, then concatenate them with the word embeddings
         if vocab_size_lemmas > 0:
             embedded_inputs = embed_inputs(self.train_inputs, self.train_inputs_lemmas)
         else:
             embedded_inputs = embed_inputs(self.train_inputs)
-        self.cost, self.logits, self.losses = biRNN_WSD(embedded_inputs, self.train_seq_lengths, self.train_indices,
-                                           self.weights, self.biases, self.train_labels, True, self.keep_prob)
+        self.cost, self.logits, self.losses, self.logits_pos = biRNN_WSD(embedded_inputs, self.train_seq_lengths, self.train_indices,
+                                                        self.weights, self.biases, self.train_labels, True, self.keep_prob,
+                                                        pos_classifier, self.weights_pos, self.biases_pos, self.labels_pos)
         self.train_op = tf.train.GradientDescentOptimizer(learning_rate).minimize(self.cost)
         #self.train_op = tf.train.AdadeltaOptimizer(learning_rate).minimize(self.cost)
         if vocab_size_lemmas > 0:
@@ -109,8 +128,9 @@ class ModelSingleSoftmax:
         else:
             embedded_inputs = embed_inputs(self.val_inputs)
         tf.get_variable_scope().reuse_variables()
-        _, self.val_logits, _ = biRNN_WSD(embedded_inputs, self.val_seq_lengths, self.val_indices,
-                                       self.weights, self.biases, self.val_labels, False, 1.0)
+        _, self.val_logits, _, self.val_logits_pos = biRNN_WSD(embedded_inputs, self.val_seq_lengths, self.val_indices,
+                                          self.weights, self.biases, self.val_labels, False, 1.0,
+                                          pos_classifier, self.weights_pos, self.biases_pos, self.val_labels_pos)
 
 class ModelVectorSimilarity:
 
@@ -367,6 +387,7 @@ def run_epoch(session, model, data, keep_prob, mode, multitask="False"):
         labels = data[3]
         words_to_disambiguate = data[4]
         indices = data[5]
+        labels_pos = data[6]
         feed_dict = { model.train_seq_lengths : seq_lengths,
                       model.train_model_flags : words_to_disambiguate,
                       model.train_indices : indices,
@@ -376,6 +397,8 @@ def run_epoch(session, model, data, keep_prob, mode, multitask="False"):
             feed_dict.update({model.train_labels_regression: labels[1]})
         else:
             feed_dict.update({model.train_labels: labels})
+        if pos_classifier == "True":
+            feed_dict.update({model.labels_pos : labels_pos})
         if len(inputs) > 0:
             feed_dict.update({model.train_inputs: inputs})
         if len(input_lemmas) > 0:
@@ -384,13 +407,13 @@ def run_epoch(session, model, data, keep_prob, mode, multitask="False"):
         if multitask == "True":
             ops = [model.train_op, model.cost_c, model.cost_r, model.logits, model.output_emb]
         else:
-            ops = [model.train_op, model.cost, model.logits]
+            ops = [model.train_op, model.cost, model.logits, model.logits_pos]
     elif mode == "val":
         if multitask == "True":
             ops = [model.train_op, model.cost_c, model.cost_r, model.logits, model.val_logits,
                    model.output_emb, model.val_output_emb]
         else:
-            ops = [model.train_op, model.cost, model.logits, model.val_logits]
+            ops = [model.train_op, model.cost, model.logits, model.val_logits, model.logits_pos, model.val_logits_pos]
     elif mode == "application":
         ops = [model.val_logits]
     fetches = session.run(ops, feed_dict=feed_dict)
@@ -594,7 +617,7 @@ if __name__ == "__main__":
     else:
         train_data = data
         if data_source == "naf":
-            val_data, lemma2synsets, lemma2id, synset2id, synID_mapping, id2synset, id2pos, known_lemmas, pos_types = \
+                val_data, lemma2synsets, lemma2id, synset2id, synID_mapping, id2synset, id2pos, known_lemmas, pos_types = \
             data_ops.read_folder_semcor(test_data, lemma2synsets, lemma2id, synset2id, mode="test")
         elif data_source == "uniroma":
             val_data, lemma2synsets, lemma2id, synset2id, synID_mapping, id2synset, id2pos, known_lemmas, synset2freq = \
@@ -634,7 +657,7 @@ if __name__ == "__main__":
         sense_embeddings = None
 
     val_inputs, val_input_lemmas, val_seq_lengths, val_labels, val_words_to_disambiguate, \
-    val_indices, val_lemmas_to_disambiguate, val_synsets_gold, val_pos_filters = data_ops.format_data\
+    val_indices, val_lemmas_to_disambiguate, val_synsets_gold, val_pos_filters, val_pos_labels = data_ops.format_data\
                                                     (wsd_method, val_data, src2id, src2id_lemmas, synset2id,
                                                      synID_mapping, seq_width, word_embedding_case, word_embedding_input,
                                                      sense_embeddings, 0, lemma_embedding_dim, pos_types, "evaluation",
@@ -714,11 +737,12 @@ if __name__ == "__main__":
     def new_batch (offset):
 
         batch = data[offset:(offset+batch_size)]
-        inputs, input_lemmas, seq_lengths, labels, words_to_disambiguate, indices, lemmas, synsets_gold, pos_filters = \
+        inputs, input_lemmas, seq_lengths, labels, words_to_disambiguate, indices, lemmas, synsets_gold, pos_filters, pos_labels = \
             data_ops.format_data(wsd_method, batch, src2id, src2id_lemmas, synset2id, synID_mapping, seq_width,
                                  word_embedding_case, word_embedding_input, sense_embeddings, dropword,
                                  lemma_embedding_dim=lemma_embedding_dim, pos_types=pos_types, use_pos=use_pos, pos_classifier=pos_classifier)
-        return inputs, input_lemmas, seq_lengths, labels, words_to_disambiguate, indices, lemmas, synsets_gold, pos_filters
+        return inputs, input_lemmas, seq_lengths, labels, words_to_disambiguate, indices, lemmas, synsets_gold, \
+               pos_filters, pos_labels
 
     model = None
     if wsd_method == "similarity":
@@ -732,7 +756,8 @@ if __name__ == "__main__":
     elif wsd_method == "fullsoftmax":
         model = ModelSingleSoftmax(synset2id, word_embedding_dim, vocab_size, batch_size, seq_width, n_hidden,
                                    n_hidden_layers, val_inputs, val_input_lemmas, val_seq_lengths, val_words_to_disambiguate,
-                                   val_indices, val_labels, lemma_embedding_dim, len(src2id_lemmas))
+                                   val_indices, val_labels, lemma_embedding_dim, len(src2id_lemmas), pos_classifier,
+                                   len(pos_types), val_pos_labels)
     elif wsd_method == "multitask":
         if word_embedding_input == "wordform":
             output_embedding_dim = word_embedding_dim
@@ -782,6 +807,7 @@ if __name__ == "__main__":
             session.run(init, feed_dict=feed_dict)
 
         elif wsd_method == "fullsoftmax":
+            feed_dict={model.emb_placeholder: word_embeddings, model.place: val_labels}
             if len(lemma_embeddings) > 0:
                 session.run(init, feed_dict={model.emb_placeholder: word_embeddings, model.emb_placeholder_lemmas: lemma_embeddings,
                                              model.place: val_labels})
@@ -811,10 +837,10 @@ if __name__ == "__main__":
     for step in range(training_iters):
         offset = (step * batch_size) % (len(data) - batch_size)
         inputs, input_lemmas, seq_lengths, labels, words_to_disambiguate, indices, lemmas_to_disambiguate, \
-        synsets_gold, pos_filters = new_batch(offset)
+        synsets_gold, pos_filters, pos_labels = new_batch(offset)
         if (len(labels) == 0):
             continue
-        input_data = [inputs, input_lemmas, seq_lengths, labels, words_to_disambiguate, indices]
+        input_data = [inputs, input_lemmas, seq_lengths, labels, words_to_disambiguate, indices, pos_labels]
         val_accuracy = 0.0
         if (step % 100 == 0):
             print "Step number " + str(step)

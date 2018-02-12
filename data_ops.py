@@ -90,7 +90,7 @@ def read_file_semcor (path, mode="full_dictionary"):
     return sentences, dictionary
 
 # read the contents of a folder with Semcor files in NAF-style format
-def read_folder_semcor (path, lemma2synsets={}, lemma2id={}, synset2id={}, synID_mapping={}, pos_types=set(),
+def read_folder_semcor (path, lemma2synsets={}, lemma2id={}, synset2id={}, synID_mapping={}, pos_types={},
                         lexicon_mode="full_dictionary", mode="train", f_lex=None, wsd_method = "fullsoftmax"):
 
     data = []
@@ -170,23 +170,25 @@ def read_folder_semcor (path, lemma2synsets={}, lemma2id={}, synset2id={}, synID
                "VBN" : "VERB", "VBP" : "VERB", "VBP|TO" : "VERB", "VBZ" : "VERB", "VP" : "VERB", "WDT" : "DET", "WH" : "X",
                "WP" : "PRON", "WP$" : "PRON", "WRB" : "ADV", "``" : "."}
     pos_map_simple = {"NOUN" : "n", "VERB" : "v", "ADJ" : "a", "ADV" : "r"}
+    pos_types_counter = 0
     for sentence in data:
         for word in sentence:
             lemma = word[1]
             pos = word[2]
             if mode == "train":
                 if pos not in pos_types:
-                    pos_types.add(pos)
+                    pos_types[pos] = pos_types_counter
+                    pos_types_counter += 1
             synset_one = word[3][0]
             if synset_one != "unspecified":
-                if lemma in lemma2synsets:
+                if lemma in known_lemmas:
                     synsets = []
                     for synset in word[3]:
                         if synset in synset2id:
                             synsets.append(synset2id[synset])
                         else:
                             generic_tag = "notseen-" + pos_map_simple[pos_map[pos]]
-                            synsets.append(generic_tag)
+                            synsets.append(synset2id[generic_tag])
                     word.append(synsets)
                 else:
                     generic_tag = "notseen-" + pos_map_simple[pos_map[pos]]
@@ -219,120 +221,120 @@ def get_sensekey2synset ():
     return sensekey2synset
 
 # read the SemCor corpus as formatted in the nltk kit
-def read_semcor_nltk(path, sensekey2synset, lemma2synsets={}, lemma2id={}, synset2id={}, synID_mapping={},
-                       id2synset={}, id2pos={}, known_lemmas=set(), synset2freq = {}, wsd_method="full_dictionary",
-                       mode="train", f_lex=None):
-
-    data = []
-    if mode == "train":
-        # get lexicon from the WordNet files
-        lexicon = open(f_lex, "r")
-        lines = lexicon.readlines()
-        for line in lines:
-            fields = line.split(" ")
-            lemma, synsets = fields[0], fields[1:]
-            most_freq = -1
-            for entry in synsets:
-                synset = entry[:10].strip()
-                freq = int(entry.split(":")[1])
-                if freq > most_freq:
-                    synset2freq[lemma] = synset
-                    most_freq = freq
-                if lemma not in lemma2synsets:
-                    lemma2synsets[lemma] = [synset]
-                else:
-                    lemma2synsets[lemma].append(synset)
-
-    for f in os.listdir(path):
-        tree = ET.parse(os.path.join(path, f))
-        doc = tree.getroot()
-        paragraphs = doc.get("context").findall("p")
-        for p in paragraphs:
-            sents = p.findall("s")
-            for sentence in sents:
-                current_sentence = []
-                elements = sentence.findall(".//")
-                for element in elements:
-                    wordform = element.text
-                    lemma = element.get("lemma")
-                    if mode == "train":
-                        known_lemmas.add(lemma)
-                    pos = element.get("pos")
-                    if element.tag == "instance":
-                        synsets = [sensekey2synset[key] for key in codes2keys[element.get("id")]]
-                        # TODO: fix in the generation of the dictionary, this here is a needless check
-                        for synset in synsets:
-                            if synset.endswith("-s"):
-                                synsets[synsets.index(synset)] = synset.replace("-s", "-a")
-                    else:
-                        synsets = ["unspecified"]
-                    current_sentence.append([wordform, lemma, pos, synsets])
-                data.append(current_sentence)
-    if mode == "train":
-        lemma2synsets = collections.OrderedDict(sorted(lemma2synsets.items()))
-        index_l = 0
-        index_s = 0
-        index_s_map = 0
-        if wsd_method == "fullsoftmax" or wsd_method == "multitask":
-            synset2id['notseen-n'], synset2id['notseen-v'], synset2id['notseen-a'], synset2id['notseen-r'] = 0, 1, 2, 3
-            if wsd_method == "multitask":
-                synID_mapping.update({0: 0, 1: 1, 2: 2, 3: 3})
-            index_s = 4
-            index_s_map = 4
-        for lemma, synsets in lemma2synsets.iteritems():
-            if wsd_method == "fullsoftmax" and lemma not in known_lemmas:
-                continue
-            lemma2id[lemma] = index_l
-            index_l += 1
-            for synset in synsets:
-                if synset not in synset2id:
-                    synset2id[synset] = index_s
-                    index_s += 1
-                if wsd_method == "multitask" and lemma in known_lemmas:
-                    indx_to_map = synset2id[synset]
-                    if indx_to_map in synID_mapping:
-                        continue
-                    synID_mapping[indx_to_map] = index_s_map
-                    index_s_map += 1
-
-        for synset, id in synset2id.iteritems():
-            id2synset[id] = synset
-            pos = synset.split("-")[1]
-            id2pos[id] = pos
-    words_to_disambiguate = []
-    count_ambig = 0
-    count_missing1 = 0
-    count_missing2 = 0
-    for sentence in data:
-        for word in sentence:
-            if word[-1][0] != "unspecified":
-                if len(word[-1]) > 1:
-                    count_ambig += 1
-                synsets = []
-                # check if lemma is known
-                if (wsd_method == "fullsoftmax" or wsd_method == "multitask") and word[1] not in known_lemmas:
-                    if len(lemma2synsets[word[1]]) == 1:
-                        count_missing1 += 1
-                    elif len(lemma2synsets[word[1]]) > 1:
-                        count_missing2 += 1
-                    if word[2] == "NOUN":
-                        synsets.append(synset2id['notseen-n'])
-                    elif word[2] == "VERB":
-                        synsets.append(synset2id['notseen-v'])
-                    elif word[2] == "ADJ":
-                        synsets.append(synset2id['notseen-a'])
-                    elif word[2] == "ADV":
-                        synsets.append(synset2id['notseen-r'])
-                        # lemma2synsets[word[1]] = [syn]
-                # check if synset is known
-                else:
-                    for syn in word[-1]:
-                        synsets.append(synset2id[syn])
-                word.append(synsets)
-                words_to_disambiguate.append(word)
-            else:
-                word.append([-1])
-    return data, lemma2synsets, lemma2id, synset2id, synID_mapping, id2synset, id2pos, known_lemmas, synset2freq
+# def read_semcor_nltk(path, sensekey2synset, lemma2synsets={}, lemma2id={}, synset2id={}, synID_mapping={},
+#                        id2synset={}, id2pos={}, known_lemmas=set(), synset2freq = {}, wsd_method="full_dictionary",
+#                        mode="train", f_lex=None):
+#
+#     data = []
+#     if mode == "train":
+#         # get lexicon from the WordNet files
+#         lexicon = open(f_lex, "r")
+#         lines = lexicon.readlines()
+#         for line in lines:
+#             fields = line.split(" ")
+#             lemma, synsets = fields[0], fields[1:]
+#             most_freq = -1
+#             for entry in synsets:
+#                 synset = entry[:10].strip()
+#                 freq = int(entry.split(":")[1])
+#                 if freq > most_freq:
+#                     synset2freq[lemma] = synset
+#                     most_freq = freq
+#                 if lemma not in lemma2synsets:
+#                     lemma2synsets[lemma] = [synset]
+#                 else:
+#                     lemma2synsets[lemma].append(synset)
+#
+#     for f in os.listdir(path):
+#         tree = ET.parse(os.path.join(path, f))
+#         doc = tree.getroot()
+#         paragraphs = doc.get("context").findall("p")
+#         for p in paragraphs:
+#             sents = p.findall("s")
+#             for sentence in sents:
+#                 current_sentence = []
+#                 elements = sentence.findall(".//")
+#                 for element in elements:
+#                     wordform = element.text
+#                     lemma = element.get("lemma")
+#                     if mode == "train":
+#                         known_lemmas.add(lemma)
+#                     pos = element.get("pos")
+#                     if element.tag == "instance":
+#                         synsets = [sensekey2synset[key] for key in codes2keys[element.get("id")]]
+#                         # TODO: fix in the generation of the dictionary, this here is a needless check
+#                         for synset in synsets:
+#                             if synset.endswith("-s"):
+#                                 synsets[synsets.index(synset)] = synset.replace("-s", "-a")
+#                     else:
+#                         synsets = ["unspecified"]
+#                     current_sentence.append([wordform, lemma, pos, synsets])
+#                 data.append(current_sentence)
+#     if mode == "train":
+#         lemma2synsets = collections.OrderedDict(sorted(lemma2synsets.items()))
+#         index_l = 0
+#         index_s = 0
+#         index_s_map = 0
+#         if wsd_method == "fullsoftmax" or wsd_method == "multitask":
+#             synset2id['notseen-n'], synset2id['notseen-v'], synset2id['notseen-a'], synset2id['notseen-r'] = 0, 1, 2, 3
+#             if wsd_method == "multitask":
+#                 synID_mapping.update({0: 0, 1: 1, 2: 2, 3: 3})
+#             index_s = 4
+#             index_s_map = 4
+#         for lemma, synsets in lemma2synsets.iteritems():
+#             if wsd_method == "fullsoftmax" and lemma not in known_lemmas:
+#                 continue
+#             lemma2id[lemma] = index_l
+#             index_l += 1
+#             for synset in synsets:
+#                 if synset not in synset2id:
+#                     synset2id[synset] = index_s
+#                     index_s += 1
+#                 if wsd_method == "multitask" and lemma in known_lemmas:
+#                     indx_to_map = synset2id[synset]
+#                     if indx_to_map in synID_mapping:
+#                         continue
+#                     synID_mapping[indx_to_map] = index_s_map
+#                     index_s_map += 1
+#
+#         for synset, id in synset2id.iteritems():
+#             id2synset[id] = synset
+#             pos = synset.split("-")[1]
+#             id2pos[id] = pos
+#     words_to_disambiguate = []
+#     count_ambig = 0
+#     count_missing1 = 0
+#     count_missing2 = 0
+#     for sentence in data:
+#         for word in sentence:
+#             if word[-1][0] != "unspecified":
+#                 if len(word[-1]) > 1:
+#                     count_ambig += 1
+#                 synsets = []
+#                 # check if lemma is known
+#                 if (wsd_method == "fullsoftmax" or wsd_method == "multitask") and word[1] not in known_lemmas:
+#                     if len(lemma2synsets[word[1]]) == 1:
+#                         count_missing1 += 1
+#                     elif len(lemma2synsets[word[1]]) > 1:
+#                         count_missing2 += 1
+#                     if word[2] == "NOUN":
+#                         synsets.append(synset2id['notseen-n'])
+#                     elif word[2] == "VERB":
+#                         synsets.append(synset2id['notseen-v'])
+#                     elif word[2] == "ADJ":
+#                         synsets.append(synset2id['notseen-a'])
+#                     elif word[2] == "ADV":
+#                         synsets.append(synset2id['notseen-r'])
+#                         # lemma2synsets[word[1]] = [syn]
+#                 # check if synset is known
+#                 else:
+#                     for syn in word[-1]:
+#                         synsets.append(synset2id[syn])
+#                 word.append(synsets)
+#                 words_to_disambiguate.append(word)
+#             else:
+#                 word.append([-1])
+#     return data, lemma2synsets, lemma2id, synset2id, synID_mapping, id2synset, id2pos, known_lemmas, synset2freq
 
 def read_data_uniroma (path, sensekey2synset, lemma2synsets={}, lemma2id={}, synset2id={}, synID_mapping={},
                        id2synset={}, id2pos={}, known_lemmas=set(), synset2freq = {}, wsd_method="full_dictionary",
@@ -486,6 +488,7 @@ def format_data (wsd_method, input_data, src2id, src2id_lemmas, synset2id, synID
     lemmas_to_disambiguate = []
     synsets_gold = []
     pos_filters = []
+    pos_labels = []
     pos_map_penn = {"!" : ".", "#" : ".", "$" : ".", "''" : ".", "(" : ".", ")" : ".", "," : ".", "-LRB-" : ".", "-RRB-" : ".",
                "." : ".", ":" : ".", "?" : ".", "CC" : "CONJ", "CD" : "NUM", "CD|RB" : "X", "DT" : "DET", "EX" : "DET",
                "FW" : "X", "IN" : "ADP", "IN|RP" : "ADP", "JJ" : "ADJ", "JJR" : "ADJ", "JJRJR" : "ADJ", "JJS" : "ADJ",
@@ -628,10 +631,18 @@ def format_data (wsd_method, input_data, src2id, src2id_lemmas, synset2id, synID
                     current_labels_c.append(current_label_c)
                 indices.append(copy(ind_count))
                 lemmas_to_disambiguate.append(word[1])
-                if pos_classifier == "True":
-                    current_pos_label = copy(zero_pos_label)
-                    current_pos_label[]
-                    current_pos_labels.append(current_pos_label)
+            if pos_classifier == "True":
+                current_pos_label = copy(zero_pos_label)
+                if word[2] not in pos_types:
+                    if word[2] == "MD|VB":
+                        word[2] = "MD"
+                    elif word[2] == "NNP|NP":
+                        word[2] = "NNP"
+                    elif word[2] == "NPS":
+                        word[2] = "POS"
+                current_pos_label[pos_types[word[2]]] = 1
+                # current_pos_label[]
+                current_pos_labels.append(current_pos_label)
             # else:
             #     current_label = np.zeros(1, dtype=int)
             current_wtd.append(current_flag)
@@ -659,7 +670,8 @@ def format_data (wsd_method, input_data, src2id, src2id_lemmas, synset2id, synID
         if len(src2id_lemmas) > 0:
             inputs_lemmas.append(current_input_lemmas)
         if pos_classifier:
-            current_pos_labels += (seq_width - len(current_input_lemmas)) * [src2id_lemmas["UNK"]]
+            current_pos_labels += (seq_width - len(current_pos_labels)) * [zero_pos_label]
+            pos_labels.extend(current_pos_labels)
         # extend results in a 2-d tensor where sentences are concatenated; append results in a 3-d tensor
         labels.extend(current_labels)
         if wsd_method == "multitask":
@@ -673,12 +685,14 @@ def format_data (wsd_method, input_data, src2id, src2id_lemmas, synset2id, synID
     if wsd_method == "multitask":
         labels_c = np.asarray(labels_c)
         labels = (labels_c, labels)
+    if pos_classifier == "True":
+        pos_labels = np.asarray(pos_labels)
     indices = np.asarray(indices)
     inputs = np.asarray(inputs)
     inputs_lemmas = np.asarray(inputs_lemmas)
 
     return inputs, inputs_lemmas, seq_lengths, labels, words_to_disambiguate, indices, lemmas_to_disambiguate, \
-           synsets_gold, pos_filters
+           synsets_gold, pos_filters, pos_labels
 
 
 def softmax(w, t = 1.0):

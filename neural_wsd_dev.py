@@ -14,6 +14,17 @@ from gensim.models import KeyedVectors
 from copy import copy
 from sklearn.metrics.pairwise import cosine_similarity
 
+pos_map = {"!": ".", "#": ".", "$": ".", "''": ".", "(": ".", ")": ".", ",": ".", "-LRB-": ".", "-RRB-": ".",
+           ".": ".", ":": ".", "?": ".", "CC": "CONJ", "CD": "NUM", "CD|RB": "X", "DT": "DET", "EX": "DET",
+           "FW": "X", "IN": "ADP", "IN|RP": "ADP", "JJ": "ADJ", "JJR": "ADJ", "JJRJR": "ADJ", "JJS": "ADJ",
+           "JJ|RB": "ADJ", "JJ|VBG": "ADJ", "LS": "X", "MD": "VERB", "NN": "NOUN", "NNP": "NOUN", "NNPS": "NOUN",
+           "NNS": "NOUN", "NN|NNS": "NOUN", "NN|SYM": "NOUN", "NN|VBG": "NOUN", "NP": "NOUN", "PDT": "DET",
+           "POS": "PRT", "PRP": "PRON", "PRP$": "PRON", "PRP|VBP": "PRON", "PRT": "PRT", "RB": "ADV", "RBR": "ADV",
+           "RBS": "ADV", "RB|RP": "ADV", "RB|VBG": "ADV", "RN": "X", "RP": "PRT", "SYM": "X", "TO": "PRT",
+           "UH": "X", "VB": "VERB", "VBD": "VERB", "VBD|VBN": "VERB", "VBG": "VERB", "VBG|NN": "VERB",
+           "VBN": "VERB", "VBP": "VERB", "VBP|TO": "VERB", "VBZ": "VERB", "VP": "VERB", "WDT": "DET", "WH": "X",
+           "WP": "PRON", "WP$": "PRON", "WRB": "ADV", "``": "."}
+pos_map_simple = {"NOUN": "n", "VERB": "v", "ADJ": "a", "ADV": "r"}
 
 class ModelSingleSoftmax:
     #TODO make model work with batches (no reason not to use them before the WSD part, I think)
@@ -617,12 +628,17 @@ if __name__ == "__main__":
     else:
         train_data = data
         if data_source == "naf":
-                val_data, lemma2synsets, lemma2id, synset2id, synID_mapping, id2synset, id2pos, known_lemmas, pos_types = \
+            val_data, lemma2synsets, lemma2id, synset2id, synID_mapping, id2synset, id2pos, known_lemmas, pos_types = \
             data_ops.read_folder_semcor(test_data, lemma2synsets, lemma2id, synset2id, mode="test")
         elif data_source == "uniroma":
             val_data, lemma2synsets, lemma2id, synset2id, synID_mapping, id2synset, id2pos, known_lemmas, synset2freq = \
             data_ops.read_data_uniroma(test_data, sensekey2synset, lemma2synsets, lemma2id, synset2id, synID_mapping,
                                        id2synset, id2pos, known_lemmas, synset2freq, wsd_method=wsd_method, mode="test")
+    # get mapping from pos_ids to pos labels:
+    if pos_classifier == "True":
+        id2pos = {}
+        for pos_label, pos_id in pos_types.iteritems():
+            id2pos[pos_id] = pos_label
     # get synset embeddings if a path to a model is passed
     if sense_embeddings_src_path != "None":
         if joint_embedding == "True":
@@ -664,7 +680,8 @@ if __name__ == "__main__":
                                                      use_pos=use_pos, pos_classifier=pos_classifier)
 
     # Function to calculate the accuracy on a batch of results and gold labels
-    def accuracy(logits, lemmas, synsets_gold, pos_filters, synset2id, synID_mapping=synID_mapping):
+    def accuracy(logits, lemmas, synsets_gold, pos_filters, synset2id, indices=None, synID_mapping=synID_mapping,
+                 pos_classifier="False", logits_pos=None, labels_pos=None):
 
         matching_cases = 0
         eval_cases = 0
@@ -673,7 +690,14 @@ if __name__ == "__main__":
             max_id = -1
             gold_synsets = synsets_gold[i]
             #gold_pos = gold_synsets[0].split("-")[1]
-            gold_pos = pos_filters[i]
+            if pos_classifier == "True":
+                gold_pos = pos_map[id2pos[np.argmax(logits_pos[indices[i]])]]
+                if gold_pos in pos_map_simple:
+                    gold_pos = pos_map_simple[gold_pos]
+                else:
+                    gold_pos = None
+            else:
+                gold_pos = pos_filters[i]
             lemma = lemmas[i]
             if lemma not in known_lemmas:
                 max_id = lemma2synsets[lemma][0]
@@ -690,7 +714,7 @@ if __name__ == "__main__":
                     if len(synID_mapping) > 0:
                         id = synID_mapping[id]
                     # make sure we only evaluate on synsets of the correct POS category
-                    if synset.split("-")[1] != gold_pos:
+                    if gold_pos != None and synset.split("-")[1] != gold_pos:
                         continue
                     if logit[id] > max:
                         max = logit[id]
@@ -701,8 +725,19 @@ if __name__ == "__main__":
             if max_id in gold_synsets:
                 matching_cases += 1
             eval_cases += 1
+        accuracy_pos = 0.0
+        if pos_classifier == "True":
+            matching_cases_pos = 0
+            eval_cases_pos = 0
+            for i, logit_pos in enumerate(logits_pos):
+                if np.amax(labels_pos[i]) == 0:
+                    continue
+                if np.argmax(logit_pos) == np.argmax(labels_pos[i]):
+                    matching_cases_pos += 1
+                eval_cases_pos += 1
+            accuracy_pos = (100.0 * matching_cases_pos) / eval_cases_pos
 
-        return (100.0 * matching_cases) / eval_cases
+        return (100.0 * matching_cases) / eval_cases, accuracy_pos
 
     def accuracy_cosine_distance (logits, lemmas, synsets_gold, pos_filters):
 
@@ -732,6 +767,7 @@ if __name__ == "__main__":
             eval_cases += 1
 
         return (100.0 * matching_cases) / eval_cases
+
 
     # Create a new batch from the training data (data, labels and sequence lengths)
     def new_batch (offset):
@@ -865,9 +901,12 @@ if __name__ == "__main__":
                 #     with open(os.path.join(args.save_path, 'src2id_lemmas.pkl'), 'wb') as output:
                 #         pickle.dump(src2id_lemmas, output, pickle.HIGHEST_PROTOCOL)
             elif wsd_method == "fullsoftmax":
-                val_accuracy = accuracy(fetches[3], val_lemmas_to_disambiguate, val_synsets_gold, val_pos_filters, synset2id)
-                results.write('Minibatch accuracy: ' + str(accuracy(fetches[2], lemmas_to_disambiguate,
-                                                                    synsets_gold, pos_filters, synset2id))
+                val_accuracy, val_accuracy_pos = accuracy(fetches[3], val_lemmas_to_disambiguate, val_synsets_gold,
+                                                          val_pos_filters, synset2id, val_indices, pos_classifier=pos_classifier,
+                                                          logits_pos=fetches[5], labels_pos=val_pos_labels)
+                results.write('Minibatch accuracy: ' + str(accuracy(fetches[2], lemmas_to_disambiguate, synsets_gold,
+                                                                    pos_filters, synset2id, indices, pos_classifier=pos_classifier,
+                                                                    logits_pos=fetches[4], labels_pos=pos_labels))[0]
                               + '\n')
                 results.write('Validation accuracy: ' + str(val_accuracy) + '\n')
             elif wsd_method == "multitask":
@@ -887,6 +926,8 @@ if __name__ == "__main__":
                 # ops = [model.train_op, model.cost_c, model.cost_r, model.logits, model.val_logits,
                 #        model.output_emb, model.val_output_emb]
             print "Validation accuracy: " + str(val_accuracy)
+            if pos_classifier == "True":
+                print "Validation accuracy for POS: " + str(val_accuracy_pos)
             batch_loss = 0.0
             if wsd_method == "multitask":
                 batch_loss_r = 0.0

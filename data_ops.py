@@ -90,16 +90,16 @@ def read_file_semcor (path, mode="full_dictionary"):
     return sentences, dictionary
 
 # read the contents of a folder with Semcor files in NAF-style format
-def read_folder_semcor (path, lemma2synsets={}, lemma2id={}, synset2id={}, synID_mapping={}, pos_types={},
-                        lexicon_mode="full_dictionary", mode="train", f_lex=None, wsd_method = "fullsoftmax"):
+def read_folder_semcor (path, lemma2synsets={}, known_lemmas = set(), lemma2id={}, synset2id={}, synID_mapping={},
+                        pos_types={}, lexicon_mode="full_dictionary", mode="train", f_lex=None, wsd_method = "fullsoftmax"):
 
     data = []
-    known_lemmas = set()
     for f in os.listdir(path):
         new_data = []
         if lexicon_mode == "full_dictionary":
             new_data, new_lemmas = read_file_semcor(os.path.join(path, f), "full_dictionary")
-            known_lemmas.update(new_lemmas)
+            if mode == "train":
+                known_lemmas.update(new_lemmas)
         elif lexicon_mode == "attested_senses":
             new_data, new_synsets = read_file_semcor(os.path.join(path, f), "attested_senses")
         data.extend(new_data)
@@ -174,6 +174,21 @@ def read_folder_semcor (path, lemma2synsets={}, lemma2id={}, synset2id={}, synID
     for sentence in data:
         for word in sentence:
             lemma = word[1]
+            if word[2] not in pos_map:
+                if word[2] == "MD|VB":
+                    word[2] = "MD"
+                elif word[2] == "NNP|NP":
+                    word[2] = "NNP"
+                elif word[2] == "NPS":
+                    word[2] = "POS"
+                elif word[2] == "PR":
+                    word[2] = "WRB"
+                elif word[2] == "NNP|VBN":
+                    word[2] = "VBN"
+                elif word[2] == "PP":
+                    word[2] = "PRP"
+                else:
+                    print word[2]
             pos = word[2]
             if mode == "train":
                 if pos not in pos_types:
@@ -633,13 +648,6 @@ def format_data (wsd_method, input_data, src2id, src2id_lemmas, synset2id, synID
                 lemmas_to_disambiguate.append(word[1])
             if pos_classifier == "True":
                 current_pos_label = copy(zero_pos_label)
-                if word[2] not in pos_types:
-                    if word[2] == "MD|VB":
-                        word[2] = "MD"
-                    elif word[2] == "NNP|NP":
-                        word[2] = "NNP"
-                    elif word[2] == "NPS":
-                        word[2] = "POS"
                 current_pos_label[pos_types[word[2]]] = 1
                 # current_pos_label[]
                 current_pos_labels.append(current_pos_label)

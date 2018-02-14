@@ -31,7 +31,8 @@ class ModelSingleSoftmax:
     def __init__(self, synset2id, word_embedding_dim, vocab_size,
                  batch_size, seq_width, n_hidden, n_hidden_layers,
                  val_inputs, val_input_lemmas, val_seq_lengths, val_flags, val_indices, val_labels,
-                 lemma_embedding_dim, vocab_size_lemmas, pos_classifier="False", pos_classes=0, val_pos_labels=None):
+                 lemma_embedding_dim, vocab_size_lemmas, wsd_classifier="True", pos_classifier="False",
+                 pos_classes=0, val_pos_labels=None):
         self.emb_placeholder = tf.placeholder(tf.float32, shape=[vocab_size, word_embedding_dim])
         self.embeddings = tf.Variable(self.emb_placeholder)
         self.set_embeddings = tf.assign(self.embeddings, self.emb_placeholder, validate_shape=False)
@@ -40,14 +41,21 @@ class ModelSingleSoftmax:
             self.embeddings_lemmas = tf.Variable(self.emb_placeholder_lemmas)
             self.set_embeddings_lemmas = tf.assign(self.embeddings_lemmas, self.emb_placeholder_lemmas, validate_shape=False)
         #TODO pick an initializer
-        self.weights = tf.get_variable(name="softmax-w", shape=[2*n_hidden, len(synset2id)], dtype=tf.float32)
-        self.biases = tf.get_variable(name="softmax-b", shape=[len(synset2id)], dtype=tf.float32)
+        if wsd_classifier == "True":
+            self.weights = tf.get_variable(name="softmax-w", shape=[2*n_hidden, len(synset2id)], dtype=tf.float32)
+            self.biases = tf.get_variable(name="softmax-b", shape=[len(synset2id)], dtype=tf.float32)
+            self.train_model_flags = tf.placeholder(tf.bool, shape=[batch_size, seq_width])
+            self.train_labels = tf.placeholder(tf.int32, shape=[None, len(synset2id)])
+            self.train_indices = tf.placeholder(tf.int32, shape=[None])
+        else:
+            self.weights = None
+            self.biases = None
+            self.train_model_flags = None
+            self.train_labels = None
+            self.train_indices = None
         self.train_inputs = tf.placeholder(tf.int32, shape=[batch_size, seq_width])
         self.train_inputs_lemmas = tf.placeholder(tf.int32, shape=[batch_size, seq_width])
         self.train_seq_lengths = tf.placeholder(tf.int32, shape=[batch_size])
-        self.train_model_flags = tf.placeholder(tf.bool, shape=[batch_size, seq_width])
-        self.train_labels = tf.placeholder(tf.int32, shape=[None, len(synset2id)])
-        self.train_indices = tf.placeholder(tf.int32, shape=[None])
         if pos_classifier == "True":
             self.weights_pos = tf.get_variable(name="softmax_pos-w", shape=[2*n_hidden, pos_classes], dtype=tf.float32)
             self.biases_pos = tf.get_variable(name="softmax_pos-b", shape=[pos_classes], dtype=tf.float32)
@@ -56,7 +64,7 @@ class ModelSingleSoftmax:
         else:
             self.weights_pos = None
             self.biases_pos = None
-            self.labels = None
+            self.labels_pos = None
             self.val_labels_pos = None
         self.val_inputs = tf.constant(val_inputs, tf.int32)
         if vocab_size_lemmas > 0:
@@ -78,7 +86,7 @@ class ModelSingleSoftmax:
             return embedded_inputs
 
         def biRNN_WSD (embedded_inputs, seq_lengths, indices, weights, biases, labels, is_training, keep_prob,
-                       pos_classifier="False", weights_pos=None, biases_pos=None, labels_pos=None):
+                       pos_classifier="False", wsd_classifier="True", weights_pos=None, biases_pos=None, labels_pos=None):
 
             with tf.variable_scope(tf.get_variable_scope()) as scope:
 
@@ -115,12 +123,19 @@ class ModelSingleSoftmax:
                     logits_pos = tf.matmul(rnn_outputs, weights_pos) + biases_pos
                     losses_pos = tf.nn.softmax_cross_entropy_with_logits(logits=logits_pos, labels=labels_pos)
                     cost_pos = tf.reduce_mean(losses_pos)
-                target_outputs = tf.gather(rnn_outputs, indices)
-                logits = tf.matmul(target_outputs, weights) + biases
-                losses = tf.nn.softmax_cross_entropy_with_logits(logits=logits, labels=labels)
-                cost = tf.reduce_mean(losses)
-                if pos_classifier == "True":
-                    cost += cost_pos
+                logits = []
+                losses = []
+                if wsd_classifier == "True":
+                    target_outputs = tf.gather(rnn_outputs, indices)
+                    logits = tf.matmul(target_outputs, weights) + biases
+                    losses = tf.nn.softmax_cross_entropy_with_logits(logits=logits, labels=labels)
+                    cost_wsd = tf.reduce_mean(losses)
+                if pos_classifier == "True" and wsd_classifier == "True":
+                    cost = cost_pos + cost_wsd
+                elif wsd_classifier == "True":
+                    cost = cost_wsd
+                elif pos_classifier == "True":
+                    cost = cost_pos
 
             return cost, logits, losses, logits_pos
 
@@ -131,7 +146,7 @@ class ModelSingleSoftmax:
             embedded_inputs = embed_inputs(self.train_inputs)
         self.cost, self.logits, self.losses, self.logits_pos = biRNN_WSD(embedded_inputs, self.train_seq_lengths, self.train_indices,
                                                         self.weights, self.biases, self.train_labels, True, self.keep_prob,
-                                                        pos_classifier, self.weights_pos, self.biases_pos, self.labels_pos)
+                                                        pos_classifier, wsd_classifier, self.weights_pos, self.biases_pos, self.labels_pos)
         self.train_op = tf.train.GradientDescentOptimizer(learning_rate).minimize(self.cost)
         #self.train_op = tf.train.AdadeltaOptimizer(learning_rate).minimize(self.cost)
         if vocab_size_lemmas > 0:
@@ -141,7 +156,7 @@ class ModelSingleSoftmax:
         tf.get_variable_scope().reuse_variables()
         _, self.val_logits, _, self.val_logits_pos = biRNN_WSD(embedded_inputs, self.val_seq_lengths, self.val_indices,
                                           self.weights, self.biases, self.val_labels, False, 1.0,
-                                          pos_classifier, self.weights_pos, self.biases_pos, self.val_labels_pos)
+                                          pos_classifier, wsd_classifier, self.weights_pos, self.biases_pos, self.val_labels_pos)
 
 class ModelVectorSimilarity:
 
@@ -400,14 +415,14 @@ def run_epoch(session, model, data, keep_prob, mode, multitask="False"):
         indices = data[5]
         labels_pos = data[6]
         feed_dict = { model.train_seq_lengths : seq_lengths,
-                      model.train_model_flags : words_to_disambiguate,
-                      model.train_indices : indices,
                       model.keep_prob : keep_prob}
-        if multitask == "True":
-            feed_dict.update({model.train_labels_classification: labels[0]})
-            feed_dict.update({model.train_labels_regression: labels[1]})
-        else:
-            feed_dict.update({model.train_labels: labels})
+        if wsd_classifier == "True":
+            if multitask == "True":
+                feed_dict.update({model.train_labels_classification: labels[0]})
+                feed_dict.update({model.train_labels_regression: labels[1]})
+            else:
+                feed_dict.update({model.train_labels: labels})
+            feed_dict.update({model.train_model_flags : words_to_disambiguate, model.train_indices : indices})
         if pos_classifier == "True":
             feed_dict.update({model.labels_pos : labels_pos})
         if len(inputs) > 0:
@@ -441,6 +456,8 @@ if __name__ == "__main__":
                         help="Is this is a training run or an application run? Options: train, application")
     parser.add_argument('-wsd_method', dest='wsd_method', required=True, default="fullsoftmax",
                         help='Which method is used for the final, WSD step: similarity or fullsoftmax?')
+    parser.add_argument('-wsd_classifier', dest='wsd_classifier', required=False, default="True",
+                        help='Should the system learn to annotate for WSD as well?')
     parser.add_argument('-pos_classifier', dest='pos_classifier', required=False, default="False",
                         help='Should the system learn to annotate for POS as well?')
     parser.add_argument('-word_embedding_method', dest='word_embedding_method', required=False, default="tensorflow",
@@ -604,6 +621,7 @@ if __name__ == "__main__":
     dropword = float(args.dropword)
     use_pos = args.use_pos
     pos_classifier = args.pos_classifier
+    wsd_classifier = args.wsd_classifier
 
     data = args.training_data
     known_lemmas = set()
@@ -681,50 +699,54 @@ if __name__ == "__main__":
 
     # Function to calculate the accuracy on a batch of results and gold labels
     def accuracy(logits, lemmas, synsets_gold, pos_filters, synset2id, indices=None, synID_mapping=synID_mapping,
-                 pos_classifier="False", logits_pos=None, labels_pos=None):
+                 pos_classifier="False", wsd_classifier="True", use_gold_pos="False", logits_pos=None, labels_pos=None):
 
-        matching_cases = 0
-        eval_cases = 0
-        for i, logit in enumerate(logits):
-            max = -10000
-            max_id = -1
-            gold_synsets = synsets_gold[i]
-            #gold_pos = gold_synsets[0].split("-")[1]
-            if pos_classifier == "True":
-                gold_pos = pos_map[id2pos[np.argmax(logits_pos[indices[i]])]]
-                if gold_pos in pos_map_simple:
-                    gold_pos = pos_map_simple[gold_pos]
+        accuracy_wsd = 0.0
+        if wsd_classifier == "True":
+            matching_cases = 0
+            eval_cases = 0
+            for i, logit in enumerate(logits):
+                max = -10000
+                max_id = -1
+                gold_synsets = synsets_gold[i]
+                #gold_pos = gold_synsets[0].split("-")[1]
+                if pos_classifier == "True" and use_gold_pos == "False":
+                    gold_pos = pos_map[id2pos[np.argmax(logits_pos[indices[i]])]]
+                    if gold_pos in pos_map_simple:
+                        gold_pos = pos_map_simple[gold_pos]
+                    else:
+                        gold_pos = None
                 else:
-                    gold_pos = None
-            else:
-                gold_pos = pos_filters[i]
-            lemma = lemmas[i]
-            if lemma not in known_lemmas:
-                max_id = lemma2synsets[lemma][0]
-                # if len(lemma2synsets[lemma]) == 1:
-                #     max_id = lemma2synsets[lemma][0]
-                # elif len(lemma2synsets[lemma]) > 1:
-                #     if synset2freq[lemma] > 0:
-                #         max_id = synset2freq[lemma]
-                #     else:
-                #         max_id = random.choice(lemma2synsets[lemma])
-            else:
-                for synset in lemma2synsets[lemma]:
-                    id = synset2id[synset]
-                    if len(synID_mapping) > 0:
-                        id = synID_mapping[id]
-                    # make sure we only evaluate on synsets of the correct POS category
-                    if gold_pos != None and synset.split("-")[1] != gold_pos:
-                        continue
-                    if logit[id] > max:
-                        max = logit[id]
-                        max_id = synset
-            #make sure there is at least one synset with a positive score
-            # if max < 0:
-            #     pruned_logit[max_id] = max * -1
-            if max_id in gold_synsets:
-                matching_cases += 1
-            eval_cases += 1
+                    gold_pos = pos_filters[i]
+                lemma = lemmas[i]
+                if lemma not in known_lemmas:
+                    max_id = lemma2synsets[lemma][0]
+                    # if len(lemma2synsets[lemma]) == 1:
+                    #     max_id = lemma2synsets[lemma][0]
+                    # elif len(lemma2synsets[lemma]) > 1:
+                    #     if synset2freq[lemma] > 0:
+                    #         max_id = synset2freq[lemma]
+                    #     else:
+                    #         max_id = random.choice(lemma2synsets[lemma])
+                else:
+                    for synset in lemma2synsets[lemma]:
+                        id = synset2id[synset]
+                        if len(synID_mapping) > 0:
+                            id = synID_mapping[id]
+                        # make sure we only evaluate on synsets of the correct POS category
+                        if gold_pos != None and synset.split("-")[1] != gold_pos:
+                            continue
+                        if logit[id] > max:
+                            max = logit[id]
+                            max_id = synset
+                #make sure there is at least one synset with a positive score
+                # if max < 0:
+                #     pruned_logit[max_id] = max * -1
+                if max_id in gold_synsets:
+                    matching_cases += 1
+                eval_cases += 1
+            accuracy_wsd = (100.0 * matching_cases) / eval_cases
+
         accuracy_pos = 0.0
         if pos_classifier == "True":
             matching_cases_pos = 0
@@ -737,7 +759,7 @@ if __name__ == "__main__":
                 eval_cases_pos += 1
             accuracy_pos = (100.0 * matching_cases_pos) / eval_cases_pos
 
-        return (100.0 * matching_cases) / eval_cases, accuracy_pos
+        return accuracy_wsd, accuracy_pos
 
     def accuracy_cosine_distance (logits, lemmas, synsets_gold, pos_filters):
 
@@ -792,8 +814,8 @@ if __name__ == "__main__":
     elif wsd_method == "fullsoftmax":
         model = ModelSingleSoftmax(synset2id, word_embedding_dim, vocab_size, batch_size, seq_width, n_hidden,
                                    n_hidden_layers, val_inputs, val_input_lemmas, val_seq_lengths, val_words_to_disambiguate,
-                                   val_indices, val_labels, lemma_embedding_dim, len(src2id_lemmas), pos_classifier,
-                                   len(pos_types), val_pos_labels)
+                                   val_indices, val_labels, lemma_embedding_dim, len(src2id_lemmas), wsd_classifier,
+                                   pos_classifier, len(pos_types), val_pos_labels)
     elif wsd_method == "multitask":
         if word_embedding_input == "wordform":
             output_embedding_dim = word_embedding_dim
@@ -903,10 +925,12 @@ if __name__ == "__main__":
             elif wsd_method == "fullsoftmax":
                 val_accuracy, val_accuracy_pos = accuracy(fetches[3], val_lemmas_to_disambiguate, val_synsets_gold,
                                                           val_pos_filters, synset2id, val_indices, pos_classifier=pos_classifier,
-                                                          logits_pos=fetches[5], labels_pos=val_pos_labels)
+                                                          wsd_classifier=wsd_classifier, logits_pos=fetches[5],
+                                                          labels_pos=val_pos_labels)
                 results.write('Minibatch accuracy: ' + str(accuracy(fetches[2], lemmas_to_disambiguate, synsets_gold,
                                                                     pos_filters, synset2id, indices, pos_classifier=pos_classifier,
-                                                                    logits_pos=fetches[4], labels_pos=pos_labels))[0]
+                                                                    wsd_classifier=wsd_classifier, logits_pos=fetches[4],
+                                                                    labels_pos=pos_labels)[0])
                               + '\n')
                 results.write('Validation accuracy: ' + str(val_accuracy) + '\n')
             elif wsd_method == "multitask":
@@ -928,6 +952,7 @@ if __name__ == "__main__":
             print "Validation accuracy: " + str(val_accuracy)
             if pos_classifier == "True":
                 print "Validation accuracy for POS: " + str(val_accuracy_pos)
+                results.write('Validation accuracy for POS: ' + str(val_accuracy_pos) + '\n')
             batch_loss = 0.0
             if wsd_method == "multitask":
                 batch_loss_r = 0.0
@@ -940,8 +965,16 @@ if __name__ == "__main__":
 
         if val_accuracy > best_accuracy:
             best_accuracy = val_accuracy
+            if pos_classifier == "True" and wsd_classifier == "True":
+                val_accuracy_gold_pos, _ = accuracy(fetches[3], val_lemmas_to_disambiguate, val_synsets_gold,
+                                                          val_pos_filters, synset2id, val_indices,
+                                                          pos_classifier=pos_classifier, use_gold_pos="True",
+                                                          logits_pos=fetches[5], labels_pos=val_pos_labels)
+                results.write('Validation classification accuracy with gold POS: ' + str(val_accuracy_gold_pos) + '\n')
+
         if multitask == "True" and val_accuracy_r > best_accuracy_r:
             best_accurary_r = val_accuracy_r
+
 
         if (args.save_path != "None" and step == 25000 or step > 25000 and val_accuracy == best_accuracy):
             for file in os.listdir(model_path):

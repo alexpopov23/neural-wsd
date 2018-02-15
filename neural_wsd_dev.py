@@ -14,6 +14,17 @@ from gensim.models import KeyedVectors
 from copy import copy
 from sklearn.metrics.pairwise import cosine_similarity
 
+pos_map = {"!": ".", "#": ".", "$": ".", "''": ".", "(": ".", ")": ".", ",": ".", "-LRB-": ".", "-RRB-": ".",
+           ".": ".", ":": ".", "?": ".", "CC": "CONJ", "CD": "NUM", "CD|RB": "X", "DT": "DET", "EX": "DET",
+           "FW": "X", "IN": "ADP", "IN|RP": "ADP", "JJ": "ADJ", "JJR": "ADJ", "JJRJR": "ADJ", "JJS": "ADJ",
+           "JJ|RB": "ADJ", "JJ|VBG": "ADJ", "LS": "X", "MD": "VERB", "NN": "NOUN", "NNP": "NOUN", "NNPS": "NOUN",
+           "NNS": "NOUN", "NN|NNS": "NOUN", "NN|SYM": "NOUN", "NN|VBG": "NOUN", "NP": "NOUN", "PDT": "DET",
+           "POS": "PRT", "PRP": "PRON", "PRP$": "PRON", "PRP|VBP": "PRON", "PRT": "PRT", "RB": "ADV", "RBR": "ADV",
+           "RBS": "ADV", "RB|RP": "ADV", "RB|VBG": "ADV", "RN": "X", "RP": "PRT", "SYM": "X", "TO": "PRT",
+           "UH": "X", "VB": "VERB", "VBD": "VERB", "VBD|VBN": "VERB", "VBG": "VERB", "VBG|NN": "VERB",
+           "VBN": "VERB", "VBP": "VERB", "VBP|TO": "VERB", "VBZ": "VERB", "VP": "VERB", "WDT": "DET", "WH": "X",
+           "WP": "PRON", "WP$": "PRON", "WRB": "ADV", "``": "."}
+pos_map_simple = {"NOUN": "n", "VERB": "v", "ADJ": "a", "ADV": "r"}
 
 class ModelSingleSoftmax:
     #TODO make model work with batches (no reason not to use them before the WSD part, I think)
@@ -549,7 +560,8 @@ if __name__ == "__main__":
                 elif file.startswith("src2id"):
                     src2id_lemmas = pickle.load(open(os.path.join(lemma_embeddings_src_path, file), "rb"))
         else:
-            lemma_embeddings_model = KeyedVectors.load_word2vec_format(lemma_embeddings_src_path, binary=False)
+            lemma_embeddings_model = KeyedVectors.load_word2vec_format(lemma_embeddings_src_path, binary=False,
+                                                                       unicode_errors='ignore')
             lemma_embeddings = lemma_embeddings_model.syn0
             id2src_lemmas = lemma_embeddings_model.index2word
             for i, word in enumerate(id2src_lemmas):
@@ -581,10 +593,11 @@ if __name__ == "__main__":
     data = args.training_data
     known_lemmas = set()
     # Path to the mapping between WordNET sense keys and synset IDs; the file must reside in the folder with the training data
-    sensekey2synset = pickle.load(open(os.path.join(data, "sensekey2synset.pkl"), "rb"))
+    if data_source == "uniroma":
+        sensekey2synset = pickle.load(open(os.path.join(data, "sensekey2synset.pkl"), "rb"))
     if data_source == "naf":
-        data, lemma2synsets, lemma2id, synset2id, id2synset, id2pos = \
-            data_ops.read_folder_semcor(data, lexicon_mode=lexicon_mode, f_lex=lexicon)
+        data, lemma2synsets, lemma2id, synset2id, synID_mapping, id2synset, id2pos, known_lemmas, pos_types = \
+            data_ops.read_folder_semcor(data, wsd_method=wsd_method, f_lex=lexicon)
     elif data_source == "uniroma":
         data, lemma2synsets, lemma2id, synset2id, synID_mapping, id2synset, id2pos, known_lemmas, synset2freq = \
             data_ops.read_data_uniroma(data, sensekey2synset, wsd_method=wsd_method, f_lex=lexicon)
@@ -600,7 +613,7 @@ if __name__ == "__main__":
     else:
         train_data = data
         if data_source == "naf":
-            val_data, lemma2synsets, lemma2id, synset2id, id2synset, id2pos = \
+            val_data, lemma2synsets, lemma2id, synset2id, synID_mapping, id2synset, id2pos, known_lemmas, pos_types = \
             data_ops.read_folder_semcor(test_data, lemma2synsets, lemma2id, synset2id, mode="test")
         elif data_source == "uniroma":
             val_data, lemma2synsets, lemma2id, synset2id, synID_mapping, id2synset, id2pos, known_lemmas, synset2freq = \

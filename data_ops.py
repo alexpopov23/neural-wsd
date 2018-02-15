@@ -89,15 +89,16 @@ def read_file_semcor (path, mode="full_dictionary"):
     return sentences, dictionary
 
 # read the contents of a folder with Semcor files in NAF-style format
-def read_folder_semcor (path, lemma2synsets={}, lemma2id={}, synset2id={}, lexicon_mode="full_dictionary", mode="train", f_lex=None):
+def read_folder_semcor (path, lemma2synsets={}, known_lemmas = set(), lemma2id={}, synset2id={}, synID_mapping={},
+                        pos_types={}, lexicon_mode="full_dictionary", mode="train", f_lex=None, wsd_method = "fullsoftmax"):
 
     data = []
-    lemmas = set()
     for f in os.listdir(path):
         new_data = []
         if lexicon_mode == "full_dictionary":
             new_data, new_lemmas = read_file_semcor(os.path.join(path, f), "full_dictionary")
-            lemmas.update(new_lemmas)
+            if mode == "train":
+                known_lemmas.update(new_lemmas)
         elif lexicon_mode == "attested_senses":
             new_data, new_synsets = read_file_semcor(os.path.join(path, f), "attested_senses")
         data.extend(new_data)
@@ -137,49 +138,179 @@ def read_folder_semcor (path, lemma2synsets={}, lemma2id={}, synset2id={}, lexic
         lemma2synsets = collections.OrderedDict(sorted(lemma2synsets.items()))
         index_l = 0
         index_s = 0
+        index_s_map = 0
+        if wsd_method == "fullsoftmax" or wsd_method == "multitask":
+            synset2id['notseen-n'], synset2id['notseen-v'], synset2id['notseen-a'], synset2id['notseen-r'] = 0, 1, 2, 3
+            if wsd_method == "multitask":
+                synID_mapping.update({0:0, 1:1, 2:2, 3:3})
         for lemma, synsets in lemma2synsets.iteritems():
+            if wsd_method == "fullsoftmax" and lemma not in known_lemmas:
+                continue
             lemma2id[lemma] = index_l
             index_l += 1
             for synset in synsets:
                 if synset not in synset2id:
                     synset2id[synset] = index_s
                     index_s += 1
-    integers = set()
-    count_inst = 0
+                    if wsd_method == "multitask" and lemma in known_lemmas:
+                        indx_to_map = synset2id[synset]
+                        if indx_to_map in synID_mapping:
+                            continue
+                        synID_mapping[indx_to_map] = index_s_map
+                        index_s_map += 1
+    pos_map = {"!" : ".", "#" : ".", "$" : ".", "''" : ".", "(" : ".", ")" : ".", "," : ".", "-LRB-" : ".", "-RRB-" : ".",
+               "." : ".", ":" : ".", "?" : ".", "CC" : "CONJ", "CD" : "NUM", "CD|RB" : "X", "DT" : "DET", "EX" : "DET",
+               "FW" : "X", "IN" : "ADP", "IN|RP" : "ADP", "JJ" : "ADJ", "JJR" : "ADJ", "JJRJR" : "ADJ", "JJS" : "ADJ",
+               "JJ|RB" : "ADJ", "JJ|VBG" : "ADJ", "LS" : "X", "MD" : "VERB", "NN" : "NOUN", "NNP" : "NOUN", "NNPS" : "NOUN",
+               "NNS" : "NOUN", "NN|NNS" : "NOUN", "NN|SYM" : "NOUN", "NN|VBG" : "NOUN", "NP" : "NOUN", "PDT" : "DET",
+               "POS" : "PRT", "PRP" : "PRON", "PRP$" : "PRON", "PRP|VBP" : "PRON", "PRT" : "PRT", "RB" : "ADV", "RBR" : "ADV",
+               "RBS" : "ADV", "RB|RP" : "ADV", "RB|VBG" : "ADV", "RN" : "X", "RP" : "PRT", "SYM" : "X", "TO" : "PRT",
+               "UH" : "X", "VB" : "VERB", "VBD" : "VERB", "VBD|VBN" : "VERB", "VBG" : "VERB", "VBG|NN" : "VERB",
+               "VBN" : "VERB", "VBP" : "VERB", "VBP|TO" : "VERB", "VBZ" : "VERB", "VP" : "VERB", "WDT" : "DET", "WH" : "X",
+               "WP" : "PRON", "WP$" : "PRON", "WRB" : "ADV", "``" : "."}
+    pos_map_simple = {"NOUN" : "n", "VERB" : "v", "ADJ" : "a", "ADV" : "r"}
+    pos_types_counter = 0
     for sentence in data:
         for word in sentence:
             lemma = word[1]
-            synset = word[3]
-            if synset != "unspecified":
-                count_inst += 1
-                if lemma in lemma2synsets:
-                    if synset not in lemma2synsets[lemma]:
-                        print "Synset is :" + str(synset) + " and lemma2synsets is: " + str(lemma2synsets[lemma])
-                    if synset not in synset2id:
-                        lemma2synsets[lemma].append(synset)
-                        id = len(synset2id)
-                        if id in integers:
-                            print "Duplicate ID for synset " + synset + " with id " + str(id)
-                        synset2id[synset] = id
-                        integers.add(id)
+            if word[2] not in pos_map:
+                if word[2] == "MD|VB":
+                    word[2] = "MD"
+                elif word[2] == "NNP|NP":
+                    word[2] = "NNP"
+                elif word[2] == "NPS":
+                    word[2] = "POS"
+                elif word[2] == "PR":
+                    word[2] = "WRB"
+                elif word[2] == "NNP|VBN":
+                    word[2] = "VBN"
+                elif word[2] == "PP":
+                    word[2] = "PRP"
                 else:
-                    lemma2synsets[lemma] = [synset]
-                    if synset not in synset2id:
-                        id = len(synset2id)
-                        if id in integers:
-                            print "Duplicate ID for synset " + synset + " with id " + str(id)
-                        synset2id[synset] = id
-                        integers.add(id)
-                word.extend([synset2id[synset]])
+                    print word[2]
+            pos = word[2]
+            if mode == "train":
+                if pos not in pos_types:
+                    pos_types[pos] = pos_types_counter
+                    pos_types_counter += 1
+            synset_one = word[3][0]
+            if synset_one != "unspecified":
+                if lemma in known_lemmas:
+                    synsets = []
+                    for synset in word[3]:
+                        if synset in synset2id:
+                            synsets.append(synset2id[synset])
+                        else:
+                            generic_tag = "notseen-" + pos_map_simple[pos_map[pos]]
+                            synsets.append(synset2id[generic_tag])
+                    word.append(synsets)
+                else:
+                    generic_tag = "notseen-" + pos_map_simple[pos_map[pos]]
+                    word.append([synset2id[generic_tag]])
             else:
-                word.extend([-1])
+                word.append([-1])
     id2synset = {}
     id2pos = {}
     for synset, id in synset2id.iteritems():
         id2synset[id] = synset
         pos = synset.split("-")[1]
         id2pos[id] = pos
-    return data, lemma2synsets, lemma2id, synset2id, id2synset, id2pos
+    # if mode == "train":
+    #     pos_types = collections.OrderedDict(sorted(pos_types.items()))
+    return data, lemma2synsets, lemma2id, synset2id, synID_mapping, id2synset, id2pos, known_lemmas, pos_types
+
+# # read the contents of a folder with Semcor files in NAF-style format
+# def read_folder_semcor (path, lemma2synsets={}, lemma2id={}, synset2id={}, lexicon_mode="full_dictionary", mode="train", f_lex=None):
+#
+#     data = []
+#     lemmas = set()
+#     for f in os.listdir(path):
+#         new_data = []
+#         if lexicon_mode == "full_dictionary":
+#             new_data, new_lemmas = read_file_semcor(os.path.join(path, f), "full_dictionary")
+#             lemmas.update(new_lemmas)
+#         elif lexicon_mode == "attested_senses":
+#             new_data, new_synsets = read_file_semcor(os.path.join(path, f), "attested_senses")
+#         data.extend(new_data)
+#         if mode == "train" and lexicon_mode == "attested_senses":
+#             for key, values in new_synsets.iteritems():
+#                 if key not in lemma2synsets:
+#                     lemma2synsets[key] = values
+#                 else:
+#                     for value in values:
+#                         if value not in lemma2synsets[key]:
+#                             lemma2synsets[key] = lemma2synsets.get(key, ()) + [value]
+#         #lemma2synsets.update(new_synsets)
+#     if mode == "train" and lexicon_mode == "full_dictionary":
+#     # get lexicon from the WordNet files
+#         lexicon = open(f_lex, "r")
+#         lines = lexicon.readlines()
+#         for line in lines:
+#             fields = line.split(" ")
+#             lemma, synsets = fields[0].strip(), fields[1:]
+#             # if lemma not in lemmas:
+#             #     continue
+#             for entry in synsets:
+#                 synset = entry[:10].strip()
+#                 if lemma not in lemma2synsets:
+#                     lemma2synsets[lemma] = [synset]
+#                 else:
+#                     lemma2synsets[lemma].append(synset)
+#
+#
+#     if mode == "train":
+#         # # in case we want to remove all lemmas that correspond to just one synset
+#         # lemma2synsets_shrunk = {}
+#         # for lemma, synsets in lemma2synsets.iteritems():
+#         #     if len(synsets) > 1:
+#         #         lemma2synsets_shrunk[lemma] = synsets
+#         # lemma2synsets = lemma2synsets_shrunk
+#         lemma2synsets = collections.OrderedDict(sorted(lemma2synsets.items()))
+#         index_l = 0
+#         index_s = 0
+#         for lemma, synsets in lemma2synsets.iteritems():
+#             lemma2id[lemma] = index_l
+#             index_l += 1
+#             for synset in synsets:
+#                 if synset not in synset2id:
+#                     synset2id[synset] = index_s
+#                     index_s += 1
+#     integers = set()
+#     count_inst = 0
+#     for sentence in data:
+#         for word in sentence:
+#             lemma = word[1]
+#             synset = word[3]
+#             if synset != "unspecified":
+#                 count_inst += 1
+#                 if lemma in lemma2synsets:
+#                     if synset not in lemma2synsets[lemma]:
+#                         print "Synset is :" + str(synset) + " and lemma2synsets is: " + str(lemma2synsets[lemma])
+#                     if synset not in synset2id:
+#                         lemma2synsets[lemma].append(synset)
+#                         id = len(synset2id)
+#                         if id in integers:
+#                             print "Duplicate ID for synset " + synset + " with id " + str(id)
+#                         synset2id[synset] = id
+#                         integers.add(id)
+#                 else:
+#                     lemma2synsets[lemma] = [synset]
+#                     if synset not in synset2id:
+#                         id = len(synset2id)
+#                         if id in integers:
+#                             print "Duplicate ID for synset " + synset + " with id " + str(id)
+#                         synset2id[synset] = id
+#                         integers.add(id)
+#                 word.extend([synset2id[synset]])
+#             else:
+#                 word.extend([-1])
+#     id2synset = {}
+#     id2pos = {}
+#     for synset, id in synset2id.iteritems():
+#         id2synset[id] = synset
+#         pos = synset.split("-")[1]
+#         id2pos[id] = pos
+#     return data, lemma2synsets, lemma2id, synset2id, id2synset, id2pos
 
 def get_sensekey2synset ():
 
@@ -348,6 +479,16 @@ def format_data (wsd_method, input_data, src2id, src2id_lemmas, synset2id, synID
     lemmas_to_disambiguate = []
     synsets_gold = []
     pos_filters = []
+    pos_map_penn = {"!" : ".", "#" : ".", "$" : ".", "''" : ".", "(" : ".", ")" : ".", "," : ".", "-LRB-" : ".", "-RRB-" : ".",
+               "." : ".", ":" : ".", "?" : ".", "CC" : "CONJ", "CD" : "NUM", "CD|RB" : "X", "DT" : "DET", "EX" : "DET",
+               "FW" : "X", "IN" : "ADP", "IN|RP" : "ADP", "JJ" : "ADJ", "JJR" : "ADJ", "JJRJR" : "ADJ", "JJS" : "ADJ",
+               "JJ|RB" : "ADJ", "JJ|VBG" : "ADJ", "LS" : "X", "MD" : "VERB", "NN" : "NOUN", "NNP" : "NOUN", "NNPS" : "NOUN",
+               "NNS" : "NOUN", "NN|NNS" : "NOUN", "NN|SYM" : "NOUN", "NN|VBG" : "NOUN", "NP" : "NOUN", "PDT" : "DET",
+               "POS" : "PRT", "PRP" : "PRON", "PRP$" : "PRON", "PRP|VBP" : "PRON", "PRT" : "PRT", "RB" : "ADV", "RBR" : "ADV",
+               "RBS" : "ADV", "RB|RP" : "ADV", "RB|VBG" : "ADV", "RN" : "X", "RP" : "PRT", "SYM" : "X", "TO" : "PRT",
+               "UH" : "X", "VB" : "VERB", "VBD" : "VERB", "VBD|VBN" : "VERB", "VBG" : "VERB", "VBG|NN" : "VERB",
+               "VBN" : "VERB", "VBP" : "VERB", "VBP|TO" : "VERB", "VBZ" : "VERB", "VP" : "VERB", "WDT" : "DET", "WH" : "X",
+               "WP" : "PRON", "WP$" : "PRON", "WRB" : "ADV", "``" : "."}
     pos_mapper = {"NOUN":"n", "VERB":"v", "ADJ":"a", "ADV":"r"}
     zero_label = np.zeros([lemma_embedding_dim], dtype=float)
     for i, sentence in enumerate(input_data):
@@ -429,7 +570,7 @@ def format_data (wsd_method, input_data, src2id, src2id_lemmas, synset2id, synID
                             continue
                         else:
                             current_input_lemmas.append(src2id_lemmas["UNK"])
-            if (word[-1][0] > -1) or optimize_all == "True":
+            if (word[-1][0] > -1) or optimize_all == "True" and wsd_method == "similarity":
                 current_label = np.zeros([lemma_embedding_dim], dtype=float)
                 if wsd_method == "similarity":
                     # TODO fix the handling of lists of synsets, like in fullmax case
@@ -484,7 +625,11 @@ def format_data (wsd_method, input_data, src2id, src2id_lemmas, synset2id, synID
 
                 if word[-1][0] > -1:
                     current_gold_synsets.append(word[-2])
-                    current_pos_filters.append(pos_mapper[word[2]])
+                    if word[2] in pos_mapper:
+                        current_pos_filters.append(pos_mapper[word[2]])
+                    else:
+                        current_pos_filters.append(pos_mapper[pos_map_penn[word[2]]])
+                    # current_pos_filters.append(pos_mapper[word[2]])
                     if wsd_method == "multitask":
                         current_labels_c.append(current_label_c)
                     indices.append(copy(ind_count))

@@ -195,7 +195,7 @@ def read_folder_semcor (path, lemma2synsets={}, known_lemmas = set(), lemma2id={
                     pos_types_counter += 1
             synset_one = word[3][0]
             if synset_one != "unspecified":
-                if lemma in known_lemmas:
+                if lemma in known_lemmas or wsd_method == "similarity":
                     synsets = []
                     for synset in word[3]:
                         if synset in synset2id:

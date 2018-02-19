@@ -464,6 +464,10 @@ if __name__ == "__main__":
                         help='Should the system learn to annotate for WSD as well?')
     parser.add_argument('-pos_classifier', dest='pos_classifier', required=False, default="False",
                         help='Should the system learn to annotate for POS as well?')
+    parser.add_argument('-hypernym_classifier', dest='hypernym_classifier', required=False, default="False",
+                        help='Should the system learn to annotate for WordNet hypernyms as well?')
+    parser.add_argument('-hypernymy_rels', dest='hypernymy_rels', required=False, default="False",
+                        help='Path to file with hypernymy hierarchy.')
     parser.add_argument('-word_embedding_method', dest='word_embedding_method', required=False, default="tensorflow",
                         help='Which method is used for loading the pretrained embeddings: tensorflow, gensim, glove?')
     parser.add_argument('-joint_embedding', dest='joint_embedding', required=False,
@@ -626,8 +630,15 @@ if __name__ == "__main__":
     use_pos = args.use_pos
     pos_classifier = args.pos_classifier
     wsd_classifier = args.wsd_classifier
+    hypernym_classifier = args.hypernym_classifier
+    hypernymy_rels = args.hypernymy_rels
     diff_data_sources = args.diff_data_sources
     sensekey2synset = args.sensekey2synset
+
+    if hypernym_classifier == "True":
+        hyponyms, hypernyms = data_ops.get_hypernymy_graph(hypernymy_rels)
+    else:
+        hyponyms, hypernyms = None, None
 
     data = args.training_data
     known_lemmas = set()
@@ -642,7 +653,7 @@ if __name__ == "__main__":
     #     sensekey2synset = pickle.load(open(os.path.join(data, "/home/alexander/dev/projects/BAN/neural-wsd/data/UnivRomaData/WSD_Training_Corpora/SemCor/sensekey2synset.pkl"), "rb"))
     if data_source == "naf":
         data, lemma2synsets, lemma2id, synset2id, synID_mapping, id2synset, id2pos, known_lemmas, pos_types = \
-            data_ops.read_folder_semcor(data, wsd_method=wsd_method, f_lex=lexicon)
+            data_ops.read_folder_semcor(data, wsd_method=wsd_method, f_lex=lexicon, hypernyms=hypernyms)
     elif data_source == "uniroma":
         data, lemma2synsets, lemma2id, synset2id, synID_mapping, id2synset, id2pos, known_lemmas, synset2freq = \
             data_ops.read_data_uniroma(data, sensekey2synset, wsd_method=wsd_method, f_lex=lexicon)

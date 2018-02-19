@@ -15,6 +15,44 @@ from nltk.corpus import wordnet
 
 npa = np.array
 
+def get_hypernymy_graph(f_hypernymy_rels):
+
+    hypernymy_rels = open(f_hypernymy_rels, "r")
+    lines = hypernymy_rels.readlines()
+    hypernymy_rels.close()
+    # get two representations of the graph - one with mother nodes as keys and one with daughter nodes as keys (the "bottomup" one)
+    graph = {}
+    bottomup_graph = {}
+    for line in lines:
+        hyponym = line[5:13]
+        # get POS for the hyponym
+        pos = ""
+        if line[4] == "1":
+            pos = "n"
+        elif line[4] == "2":
+            pos = "v"
+        hyponym += "-" + pos  # id_to_pos[hyponym]
+        # get POS for the hypernym
+        hypernym = line[15:23]
+        pos = ""
+        if line[14] == "1":
+            pos = "n"
+        elif line[14] == "2":
+            pos = "v"
+        hypernym += "-" + pos  # id_to_pos[hypernym]
+        # print(hyponym, hypernym)
+        if hypernym in graph:
+            graph[hypernym].add(hyponym)
+        else:
+            graph[hypernym] = set()
+            graph[hypernym].add(hyponym)
+        if hyponym in bottomup_graph:
+            bottomup_graph[hyponym].add(hypernym)
+        else:
+            bottomup_graph[hyponym] = set()
+            bottomup_graph[hyponym].add(hypernym)
+    return (graph, bottomup_graph)
+
 
 # read a single NAF-style Semcor file
 def read_file_semcor (path, mode="full_dictionary"):
@@ -91,7 +129,8 @@ def read_file_semcor (path, mode="full_dictionary"):
 
 # read the contents of a folder with Semcor files in NAF-style format
 def read_folder_semcor (path, lemma2synsets={}, known_lemmas = set(), lemma2id={}, synset2id={}, synID_mapping={},
-                        pos_types={}, lexicon_mode="full_dictionary", mode="train", f_lex=None, wsd_method = "fullsoftmax"):
+                        pos_types={}, lexicon_mode="full_dictionary", mode="train", f_lex=None,
+                        wsd_method = "fullsoftmax", hypernym_classifier="False", syn2hyp=None):
 
     data = []
     for f in os.listdir(path):
@@ -171,6 +210,8 @@ def read_folder_semcor (path, lemma2synsets={}, known_lemmas = set(), lemma2id={
                "WP" : "PRON", "WP$" : "PRON", "WRB" : "ADV", "``" : "."}
     pos_map_simple = {"NOUN" : "n", "VERB" : "v", "ADJ" : "a", "ADV" : "r"}
     pos_types_counter = 0
+    hyp2id = {}
+    index_h = 0
     for sentence in data:
         for word in sentence:
             lemma = word[1]
@@ -200,18 +241,36 @@ def read_folder_semcor (path, lemma2synsets={}, known_lemmas = set(), lemma2id={
             if synset_one != "unspecified":
                 if lemma in known_lemmas:
                     synsets = []
+                    hypernyms = []
+                    hyp_ids = []
                     for synset in word[3]:
                         if synset in synset2id:
                             synsets.append(synset2id[synset])
+                            if hypernym_classifier == "True":
+                                hypernym = syn2hyp[synset]
+                                if hypernym not in hyp2id and mode == "train":
+                                    hyp2id[hypernym] = index_h
+                                    index_h += 1
+                                hypernyms.append(hypernym)
+                                hyp_ids.append(hyp2id[hypernym])
                         else:
                             generic_tag = "notseen-" + pos_map_simple[pos_map[pos]]
                             synsets.append(synset2id[generic_tag])
                     word.append(synsets)
+                    if hypernym_classifier == "True":
+                        word.append(hypernyms)
+                        word.append(hyp_ids)
                 else:
                     generic_tag = "notseen-" + pos_map_simple[pos_map[pos]]
                     word.append([synset2id[generic_tag]])
+                    if hypernym_classifier == "True":
+                        word.append(["unspecified"])
+                        word.append([-1])
             else:
                 word.append([-1])
+                if hypernym_classifier == "True":
+                    word.append(["unspecified"])
+                    word.append([-1])
     id2synset = {}
     id2pos = {}
     for synset, id in synset2id.iteritems():
@@ -458,8 +517,8 @@ def read_data_uniroma (path, sensekey2synset, lemma2synsets={}, lemma2id={}, syn
     count_missing2 = 0
     for sentence in data:
         for word in sentence:
-            if word[-1][0] != "unspecified":
-                if len(word[-1]) > 1:
+            if word[3][0] != "unspecified":
+                if len(word[3]) > 1:
                     count_ambig += 1
                 synsets = []
                 # check if lemma is known
@@ -479,7 +538,7 @@ def read_data_uniroma (path, sensekey2synset, lemma2synsets={}, lemma2id={}, syn
                     #lemma2synsets[word[1]] = [syn]
                 # check if synset is known
                 else:
-                    for syn in word[-1]:
+                    for syn in word[3]:
                         synsets.append(synset2id[syn])
                 word.append(synsets)
                 words_to_disambiguate.append(word)
@@ -598,15 +657,15 @@ def format_data (wsd_method, input_data, src2id, src2id_lemmas, synset2id, synID
                             continue
                         else:
                             current_input_lemmas.append(src2id_lemmas["UNK"])
-            if (word[-1][0] > -1):
+            if (word[4][0] > -1):
                 current_label = np.zeros([lemma_embedding_dim], dtype=float)
                 if wsd_method == "similarity":
                     # TODO fix the handling of lists of synsets, like in fullmax case
                     #if sense_embeddings != None:
-                    for syn in word[-1]:
+                    for syn in word[4]:
                         if syn < len(sense_embeddings):
                             current_label += sense_embeddings[syn]
-                    current_label = current_label / len(word[-1])
+                    current_label = current_label / len(word[4])
                     # In case no non-zero embedding is found for the synset, don't include it in the training data
                     if mode == "training" and np.amax(current_label) == 0.0:
                         current_wtd.append(False)
@@ -614,29 +673,29 @@ def format_data (wsd_method, input_data, src2id, src2id_lemmas, synset2id, synID
                         continue
                     # else:
                     #     current_label = np.zeros(len(synset2id), dtype=int)
-                    #     current_label[word[-1]] = 1
+                    #     current_label[word[4]] = 1
                 elif wsd_method == "fullsoftmax":
                     current_label = np.zeros(len(synset2id), dtype=float)
-                    for syn in word[-1]:
-                        current_label[syn] = 1.0/len(word[-1])
+                    for syn in word[4]:
+                        current_label[syn] = 1.0/len(word[4])
                 elif wsd_method == "multitask":
-                        for syn in word[-1]:
+                        for syn in word[4]:
                             if syn < len(sense_embeddings):
                                 current_label += sense_embeddings[syn]
-                        current_label = current_label / len(word[-1])
+                        current_label = current_label / len(word[4])
                         current_label_c = np.zeros(len(synID_mapping), dtype=float)
-                        for syn in word[-1]:
+                        for syn in word[4]:
                             if syn in synID_mapping:
-                                current_label_c[synID_mapping[syn]] = 1.0/len(word[-1])
+                                current_label_c[synID_mapping[syn]] = 1.0/len(word[4])
                             else:
                                 if word[2] == "NOUN":
-                                    current_label_c[synset2id['notseen-n']] = 1.0/len(word[-1])
+                                    current_label_c[synset2id['notseen-n']] = 1.0/len(word[4])
                                 elif word[2] == "VERB":
-                                    current_label_c[synset2id['notseen-v']] = 1.0/len(word[-1])
+                                    current_label_c[synset2id['notseen-v']] = 1.0/len(word[4])
                                 elif word[2] == "ADJ":
-                                    current_label_c[synset2id['notseen-a']] = 1.0/len(word[-1])
+                                    current_label_c[synset2id['notseen-a']] = 1.0/len(word[4])
                                 elif word[2] == "ADV":
-                                    current_label_c[synset2id['notseen-r']] = 1.0/len(word[-1])
+                                    current_label_c[synset2id['notseen-r']] = 1.0/len(word[4])
 
                 current_gold_synsets.append(word[-2])
                 if word[2] in pos_mapper:

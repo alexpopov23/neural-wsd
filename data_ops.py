@@ -189,6 +189,8 @@ def read_folder_semcor (path, lemma2synsets={}, known_lemmas = set(), lemma2id={
                     word[2] = "PRP"
                 else:
                     print word[2]
+            # Use coarse-grained POS tagset
+            word[2] = pos_map[word[2]]
             pos = word[2]
             if mode == "train":
                 if pos not in pos_types:

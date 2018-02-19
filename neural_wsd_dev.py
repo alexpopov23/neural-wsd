@@ -452,6 +452,10 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(version='1.0',description='Train a neural WSD tagger.')
     parser.add_argument("-data_source", dest="data_source", required=False, default="uniroma",
                         help="Which corpus are we using? Needed to determine how to read the data. Options: naf, uniroma")
+    parser.add_argument("-diff_data_sources", dest="diff_data_sources", required=False, default="False",
+                        help="In case we want to read train data from naf files and test data from uniroma files.")
+    parser.add_argument("-sensekey2synset", dest="sensekey2synset", required=False,
+                        help="Specify where the uniroma mappings are (by default in the training folder).")
     parser.add_argument("-mode", dest="mode", required=False, default="train",
                         help="Is this is a training run or an application run? Options: train, application")
     parser.add_argument('-wsd_method', dest='wsd_method', required=True, default="fullsoftmax",
@@ -622,12 +626,20 @@ if __name__ == "__main__":
     use_pos = args.use_pos
     pos_classifier = args.pos_classifier
     wsd_classifier = args.wsd_classifier
+    diff_data_sources = args.diff_data_sources
+    sensekey2synset = args.sensekey2synset
 
     data = args.training_data
     known_lemmas = set()
     # Path to the mapping between WordNET sense keys and synset IDs; the file must reside in the folder with the training data
     if data_source == "uniroma":
         sensekey2synset = pickle.load(open(os.path.join(data, "sensekey2synset.pkl"), "rb"))
+    elif data_source == "naf" and diff_data_sources == "True":
+        sensekey2synset = pickle.load(open(sensekey2synset, "rb"))
+    synset2freq = {}
+    # TODO fix this, for now use hardcoded path
+    # else:
+    #     sensekey2synset = pickle.load(open(os.path.join(data, "/home/alexander/dev/projects/BAN/neural-wsd/data/UnivRomaData/WSD_Training_Corpora/SemCor/sensekey2synset.pkl"), "rb"))
     if data_source == "naf":
         data, lemma2synsets, lemma2id, synset2id, synID_mapping, id2synset, id2pos, known_lemmas, pos_types = \
             data_ops.read_folder_semcor(data, wsd_method=wsd_method, f_lex=lexicon)
@@ -645,10 +657,11 @@ if __name__ == "__main__":
             val_data = data[partition:]
     else:
         train_data = data
-        if data_source == "naf":
+        # TODO Change this line!
+        if data_source == "naf" and diff_data_sources != "True":
             val_data, lemma2synsets, lemma2id, synset2id, synID_mapping, id2synset, id2pos, known_lemmas, pos_types = \
-            data_ops.read_folder_semcor(test_data, lemma2synsets, lemma2id, synset2id, mode="test")
-        elif data_source == "uniroma":
+            data_ops.read_folder_semcor(test_data, lemma2synsets, lemma2id, synset2id, mode="test", wsd_method=wsd_method)
+        elif data_source == "uniroma" or diff_data_sources == "True":
             val_data, lemma2synsets, lemma2id, synset2id, synID_mapping, id2synset, id2pos, known_lemmas, synset2freq = \
             data_ops.read_data_uniroma(test_data, sensekey2synset, lemma2synsets, lemma2id, synset2id, synID_mapping,
                                        id2synset, id2pos, known_lemmas, synset2freq, wsd_method=wsd_method, mode="test")
@@ -711,7 +724,9 @@ if __name__ == "__main__":
                 gold_synsets = synsets_gold[i]
                 #gold_pos = gold_synsets[0].split("-")[1]
                 if pos_classifier == "True" and use_gold_pos == "False":
-                    gold_pos = pos_map[id2pos[np.argmax(logits_pos[indices[i]])]]
+                    # Use fine or coarse-grained POS tagset
+                    # gold_pos = pos_map[id2pos[np.argmax(logits_pos[indices[i]])]]
+                    gold_pos = id2pos[np.argmax(logits_pos[indices[i]])]
                     if gold_pos in pos_map_simple:
                         gold_pos = pos_map_simple[gold_pos]
                     else:

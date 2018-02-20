@@ -130,7 +130,7 @@ def read_file_semcor (path, mode="full_dictionary"):
 # read the contents of a folder with Semcor files in NAF-style format
 def read_folder_semcor (path, lemma2synsets={}, known_lemmas = set(), lemma2id={}, synset2id={}, synID_mapping={},
                         pos_types={}, lexicon_mode="full_dictionary", mode="train", f_lex=None,
-                        wsd_method = "fullsoftmax", hypernym_classifier="False", syn2hyp=None):
+                        wsd_method = "fullsoftmax", hypernym_classifier="False", syn2hyp=None, hyp2id={}):
 
     data = []
     for f in os.listdir(path):
@@ -210,7 +210,6 @@ def read_folder_semcor (path, lemma2synsets={}, known_lemmas = set(), lemma2id={
                "WP" : "PRON", "WP$" : "PRON", "WRB" : "ADV", "``" : "."}
     pos_map_simple = {"NOUN" : "n", "VERB" : "v", "ADJ" : "a", "ADV" : "r"}
     pos_types_counter = 0
-    hyp2id = {}
     index_h = 0
     for sentence in data:
         for word in sentence:
@@ -246,31 +245,29 @@ def read_folder_semcor (path, lemma2synsets={}, known_lemmas = set(), lemma2id={
                     for synset in word[3]:
                         if synset in synset2id:
                             synsets.append(synset2id[synset])
-                            if hypernym_classifier == "True":
-                                hypernym = syn2hyp[synset]
-                                if hypernym not in hyp2id and mode == "train":
-                                    hyp2id[hypernym] = index_h
-                                    index_h += 1
-                                hypernyms.append(hypernym)
-                                hyp_ids.append(hyp2id[hypernym])
+                            if hypernym_classifier == "True" and synset in syn2hyp:
+                                    hypernym_group = syn2hyp[synset]
+                                    for hypernym in hypernym_group:
+                                        if hypernym not in hyp2id and mode == "train":
+                                            hyp2id[hypernym] = index_h
+                                            index_h += 1
+                                        if hypernym in hyp2id:
+                                            hypernyms.append(hypernym)
+                                            hyp_ids.append(hyp2id[hypernym])
                         else:
-                            generic_tag = "notseen-" + pos_map_simple[pos_map[pos]]
+                            # generic_tag = "notseen-" + pos_map_simple[pos_map[pos]]
+                            generic_tag = "notseen-" + pos_map_simple[pos]
                             synsets.append(synset2id[generic_tag])
                     word.append(synsets)
-                    if hypernym_classifier == "True":
+                    if hypernym_classifier == "True" and len(hypernyms) > 0:
                         word.append(hypernyms)
                         word.append(hyp_ids)
                 else:
-                    generic_tag = "notseen-" + pos_map_simple[pos_map[pos]]
+                    # generic_tag = "notseen-" + pos_map_simple[pos_map[pos]]
+                    generic_tag = "notseen-" + pos_map_simple[pos]
                     word.append([synset2id[generic_tag]])
-                    if hypernym_classifier == "True":
-                        word.append(["unspecified"])
-                        word.append([-1])
             else:
                 word.append([-1])
-                if hypernym_classifier == "True":
-                    word.append(["unspecified"])
-                    word.append([-1])
     id2synset = {}
     id2pos = {}
     for synset, id in synset2id.iteritems():
@@ -279,7 +276,7 @@ def read_folder_semcor (path, lemma2synsets={}, known_lemmas = set(), lemma2id={
         id2pos[id] = pos
     # if mode == "train":
     #     pos_types = collections.OrderedDict(sorted(pos_types.items()))
-    return data, lemma2synsets, lemma2id, synset2id, synID_mapping, id2synset, id2pos, known_lemmas, pos_types
+    return data, lemma2synsets, lemma2id, synset2id, synID_mapping, id2synset, id2pos, known_lemmas, pos_types, hyp2id
 
 def get_sensekey2synset ():
 
@@ -296,125 +293,9 @@ def get_sensekey2synset ():
         pickle.dump(sensekey2synset, output, pickle.HIGHEST_PROTOCOL)
     return sensekey2synset
 
-# read the SemCor corpus as formatted in the nltk kit
-# def read_semcor_nltk(path, sensekey2synset, lemma2synsets={}, lemma2id={}, synset2id={}, synID_mapping={},
-#                        id2synset={}, id2pos={}, known_lemmas=set(), synset2freq = {}, wsd_method="full_dictionary",
-#                        mode="train", f_lex=None):
-#
-#     data = []
-#     if mode == "train":
-#         # get lexicon from the WordNet files
-#         lexicon = open(f_lex, "r")
-#         lines = lexicon.readlines()
-#         for line in lines:
-#             fields = line.split(" ")
-#             lemma, synsets = fields[0], fields[1:]
-#             most_freq = -1
-#             for entry in synsets:
-#                 synset = entry[:10].strip()
-#                 freq = int(entry.split(":")[1])
-#                 if freq > most_freq:
-#                     synset2freq[lemma] = synset
-#                     most_freq = freq
-#                 if lemma not in lemma2synsets:
-#                     lemma2synsets[lemma] = [synset]
-#                 else:
-#                     lemma2synsets[lemma].append(synset)
-#
-#     for f in os.listdir(path):
-#         tree = ET.parse(os.path.join(path, f))
-#         doc = tree.getroot()
-#         paragraphs = doc.get("context").findall("p")
-#         for p in paragraphs:
-#             sents = p.findall("s")
-#             for sentence in sents:
-#                 current_sentence = []
-#                 elements = sentence.findall(".//")
-#                 for element in elements:
-#                     wordform = element.text
-#                     lemma = element.get("lemma")
-#                     if mode == "train":
-#                         known_lemmas.add(lemma)
-#                     pos = element.get("pos")
-#                     if element.tag == "instance":
-#                         synsets = [sensekey2synset[key] for key in codes2keys[element.get("id")]]
-#                         # TODO: fix in the generation of the dictionary, this here is a needless check
-#                         for synset in synsets:
-#                             if synset.endswith("-s"):
-#                                 synsets[synsets.index(synset)] = synset.replace("-s", "-a")
-#                     else:
-#                         synsets = ["unspecified"]
-#                     current_sentence.append([wordform, lemma, pos, synsets])
-#                 data.append(current_sentence)
-#     if mode == "train":
-#         lemma2synsets = collections.OrderedDict(sorted(lemma2synsets.items()))
-#         index_l = 0
-#         index_s = 0
-#         index_s_map = 0
-#         if wsd_method == "fullsoftmax" or wsd_method == "multitask":
-#             synset2id['notseen-n'], synset2id['notseen-v'], synset2id['notseen-a'], synset2id['notseen-r'] = 0, 1, 2, 3
-#             if wsd_method == "multitask":
-#                 synID_mapping.update({0: 0, 1: 1, 2: 2, 3: 3})
-#             index_s = 4
-#             index_s_map = 4
-#         for lemma, synsets in lemma2synsets.iteritems():
-#             if wsd_method == "fullsoftmax" and lemma not in known_lemmas:
-#                 continue
-#             lemma2id[lemma] = index_l
-#             index_l += 1
-#             for synset in synsets:
-#                 if synset not in synset2id:
-#                     synset2id[synset] = index_s
-#                     index_s += 1
-#                 if wsd_method == "multitask" and lemma in known_lemmas:
-#                     indx_to_map = synset2id[synset]
-#                     if indx_to_map in synID_mapping:
-#                         continue
-#                     synID_mapping[indx_to_map] = index_s_map
-#                     index_s_map += 1
-#
-#         for synset, id in synset2id.iteritems():
-#             id2synset[id] = synset
-#             pos = synset.split("-")[1]
-#             id2pos[id] = pos
-#     words_to_disambiguate = []
-#     count_ambig = 0
-#     count_missing1 = 0
-#     count_missing2 = 0
-#     for sentence in data:
-#         for word in sentence:
-#             if word[-1][0] != "unspecified":
-#                 if len(word[-1]) > 1:
-#                     count_ambig += 1
-#                 synsets = []
-#                 # check if lemma is known
-#                 if (wsd_method == "fullsoftmax" or wsd_method == "multitask") and word[1] not in known_lemmas:
-#                     if len(lemma2synsets[word[1]]) == 1:
-#                         count_missing1 += 1
-#                     elif len(lemma2synsets[word[1]]) > 1:
-#                         count_missing2 += 1
-#                     if word[2] == "NOUN":
-#                         synsets.append(synset2id['notseen-n'])
-#                     elif word[2] == "VERB":
-#                         synsets.append(synset2id['notseen-v'])
-#                     elif word[2] == "ADJ":
-#                         synsets.append(synset2id['notseen-a'])
-#                     elif word[2] == "ADV":
-#                         synsets.append(synset2id['notseen-r'])
-#                         # lemma2synsets[word[1]] = [syn]
-#                 # check if synset is known
-#                 else:
-#                     for syn in word[-1]:
-#                         synsets.append(synset2id[syn])
-#                 word.append(synsets)
-#                 words_to_disambiguate.append(word)
-#             else:
-#                 word.append([-1])
-#     return data, lemma2synsets, lemma2id, synset2id, synID_mapping, id2synset, id2pos, known_lemmas, synset2freq
-
 def read_data_uniroma (path, sensekey2synset, lemma2synsets={}, lemma2id={}, synset2id={}, synID_mapping={},
                        id2synset={}, id2pos={}, known_lemmas=set(), synset2freq = {}, wsd_method="full_dictionary",
-                       mode="train", f_lex=None):
+                       mode="train", f_lex=None, hypernym_classifier="False", syn2hyp=None, hyp2id={}):
 
     data = []
     if mode == "train":
@@ -485,6 +366,7 @@ def read_data_uniroma (path, sensekey2synset, lemma2synsets={}, lemma2id={}, syn
         index_l = 0
         index_s = 0
         index_s_map = 0
+        index_h = 0
         if wsd_method == "fullsoftmax" or wsd_method == "multitask":
             synset2id['notseen-n'], synset2id['notseen-v'], synset2id['notseen-a'], synset2id['notseen-r'] = 0, 1, 2, 3
             if wsd_method == "multitask":
@@ -521,6 +403,8 @@ def read_data_uniroma (path, sensekey2synset, lemma2synsets={}, lemma2id={}, syn
                 if len(word[3]) > 1:
                     count_ambig += 1
                 synsets = []
+                hypernyms = []
+                hyp_ids = []
                 # check if lemma is known
                 if (wsd_method == "fullsoftmax" or wsd_method == "multitask") and word[1] not in known_lemmas:
                     if len(lemma2synsets[word[1]]) == 1:
@@ -540,8 +424,20 @@ def read_data_uniroma (path, sensekey2synset, lemma2synsets={}, lemma2id={}, syn
                 else:
                     for syn in word[3]:
                         synsets.append(synset2id[syn])
+                        if hypernym_classifier == "True" and syn in syn2hyp:
+                                hypernym_group = syn2hyp[syn]
+                                for hypernym in hypernym_group:
+                                    if hypernym not in hyp2id and mode == "train":
+                                        hyp2id[hypernym] = index_h
+                                        index_h += 1
+                                    if hypernym in hyp2id:
+                                        hypernyms.append(hypernym)
+                                        hyp_ids.append(hyp2id[hypernym])
                 word.append(synsets)
                 words_to_disambiguate.append(word)
+                if hypernym_classifier == "True":
+                    word.append(hypernyms)
+                    word.append(hyp_ids)
             else:
                 word.append([-1])
     return data, lemma2synsets, lemma2id, synset2id, synID_mapping, id2synset, id2pos, known_lemmas, synset2freq
@@ -549,18 +445,22 @@ def read_data_uniroma (path, sensekey2synset, lemma2synsets={}, lemma2id={}, syn
 
 def format_data (wsd_method, input_data, src2id, src2id_lemmas, synset2id, synID_mapping, seq_width, word_embedding_case,
                  word_embedding_input, sense_embeddings=None, dropword=0.0, lemma_embedding_dim=None, pos_types=None,
-                 mode="training", skip_unknown=False, use_pos=False, pos_classifier="False"):
+                 mode="training", skip_unknown=False, use_pos=False, pos_classifier="False", hypernym_classifier="False",
+                 hyp2id=None):
 
     inputs = []
     inputs_lemmas = []
     seq_lengths = []
     labels = []
+    labels_hyp = []
     # for the multitask case
     labels_c = []
     words_to_disambiguate = []
     # a list of the words in the sentences to be disambiguated (indexed by integers)
     indices = []
+    indices_hyp = []
     ind_count = 0
+    ind_count_hyp = 0
     lemmas_to_disambiguate = []
     synsets_gold = []
     pos_filters = []
@@ -583,6 +483,7 @@ def format_data (wsd_method, input_data, src2id, src2id_lemmas, synset2id, synID
         current_input = []
         current_input_lemmas = []
         current_labels = []
+        current_labels_hyp = []
         # for the multitask case
         current_labels_c = []
         current_wtd = []
@@ -676,8 +577,14 @@ def format_data (wsd_method, input_data, src2id, src2id_lemmas, synset2id, synID
                     #     current_label[word[4]] = 1
                 elif wsd_method == "fullsoftmax":
                     current_label = np.zeros(len(synset2id), dtype=float)
+                    current_label_hyp = np.zeros(len(hyp2id), dtype=float)
                     for syn in word[4]:
                         current_label[syn] = 1.0/len(word[4])
+                    if len(word) > 5 and len(word[6]) > 0:
+                        for hyp in word[6]:
+                            current_label_hyp[hyp] = 1.0/len(word[6])
+                        indices_hyp.append(copy(ind_count))
+                        current_labels_hyp.append(current_label_hyp)
                 elif wsd_method == "multitask":
                         for syn in word[4]:
                             if syn < len(sense_embeddings):
@@ -697,7 +604,7 @@ def format_data (wsd_method, input_data, src2id, src2id_lemmas, synset2id, synID
                                 elif word[2] == "ADV":
                                     current_label_c[synset2id['notseen-r']] = 1.0/len(word[4])
 
-                current_gold_synsets.append(word[-2])
+                current_gold_synsets.append(word[3])
                 if word[2] in pos_mapper:
                     current_pos_filters.append(pos_mapper[word[2]])
                 else:
@@ -743,6 +650,8 @@ def format_data (wsd_method, input_data, src2id, src2id_lemmas, synset2id, synID
             pos_labels.extend(current_pos_labels)
         # extend results in a 2-d tensor where sentences are concatenated; append results in a 3-d tensor
         labels.extend(current_labels)
+        if hypernym_classifier == "True":
+            labels_hyp.extend(current_labels_hyp)
         if wsd_method == "multitask":
             labels_c.extend(current_labels_c)
         synsets_gold.extend(current_gold_synsets)
@@ -751,6 +660,7 @@ def format_data (wsd_method, input_data, src2id, src2id_lemmas, synset2id, synID
     seq_lengths = np.asarray(seq_lengths)
     words_to_disambiguate = np.asarray(words_to_disambiguate)
     labels = np.asarray(labels)
+    labels_hyp = np.asarray(labels_hyp)
     if wsd_method == "multitask":
         labels_c = np.asarray(labels_c)
         labels = (labels_c, labels)
@@ -761,7 +671,7 @@ def format_data (wsd_method, input_data, src2id, src2id_lemmas, synset2id, synID
     inputs_lemmas = np.asarray(inputs_lemmas)
 
     return inputs, inputs_lemmas, seq_lengths, labels, words_to_disambiguate, indices, lemmas_to_disambiguate, \
-           synsets_gold, pos_filters, pos_labels
+           synsets_gold, pos_filters, pos_labels, labels_hyp, indices_hyp
 
 
 def softmax(w, t = 1.0):

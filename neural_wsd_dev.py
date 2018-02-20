@@ -32,7 +32,8 @@ class ModelSingleSoftmax:
                  batch_size, seq_width, n_hidden, n_hidden_layers,
                  val_inputs, val_input_lemmas, val_seq_lengths, val_flags, val_indices, val_labels,
                  lemma_embedding_dim, vocab_size_lemmas, wsd_classifier="True", pos_classifier="False",
-                 pos_classes=0, val_pos_labels=None):
+                 pos_classes=0, val_pos_labels=None, hypernym_classifier="False", hyp2id=None, val_hyp_labels=None,
+                 val_hyp_indices=None):
         self.emb_placeholder = tf.placeholder(tf.float32, shape=[vocab_size, word_embedding_dim])
         self.embeddings = tf.Variable(self.emb_placeholder)
         self.set_embeddings = tf.assign(self.embeddings, self.emb_placeholder, validate_shape=False)
@@ -66,6 +67,18 @@ class ModelSingleSoftmax:
             self.biases_pos = None
             self.labels_pos = None
             self.val_labels_pos = None
+        if hypernym_classifier == "True":
+            self.weights_hyp = tf.get_variable(name="softmax_hyp-w", shape=[2*n_hidden, len(hyp2id)], dtype=tf.float32)
+            self.biases_hyp = tf.get_variable(name="softmax_jup-b", shape=[len(hyp2id)], dtype=tf.float32)
+            self.labels_hyp = tf.placeholder(name="hyp_labels", shape=[None, len(hyp2id)], dtype=tf.int32)
+            self.indices_hyp = tf.placeholder(name="hyp_indices", shape=[None], dtype=tf.int32)
+            self.val_labels_hyp = tf.constant(val_hyp_labels, tf.int32)
+            self.val_indices_hyp = tf.constant(val_hyp_indices, tf.int32)
+        else:
+            self.weights_hyp = None
+            self.biases_hyp = None
+            self.labels_hyp = None
+            self.val_labels_hyp = None
         self.val_inputs = tf.constant(val_inputs, tf.int32)
         if vocab_size_lemmas > 0:
             self.val_inputs_lemmas = tf.constant(val_input_lemmas, tf.int32)
@@ -74,6 +87,8 @@ class ModelSingleSoftmax:
         self.place = tf.placeholder(tf.int32, shape=val_labels.shape)
         self.val_labels = tf.Variable(self.place)
         self.val_indices = tf.constant(val_indices, tf.int32)
+        if hypernym_classifier == "True":
+            self.val_hyp_indices = tf.constant(val_hyp_indices, tf.int32)
         self.keep_prob = tf.placeholder(tf.float32)
 
         def embed_inputs (input_words, input_lemmas=None):
@@ -86,7 +101,8 @@ class ModelSingleSoftmax:
             return embedded_inputs
 
         def biRNN_WSD (embedded_inputs, seq_lengths, indices, weights, biases, labels, is_training, keep_prob,
-                       pos_classifier="False", wsd_classifier="True", weights_pos=None, biases_pos=None, labels_pos=None):
+                       pos_classifier="False", wsd_classifier="True", weights_pos=None, biases_pos=None, labels_pos=None,
+                       hypernym_classifier="False", weights_hyp=None, biases_hyp=None, indices_hyp=None, labels_hyp=None):
 
             with tf.variable_scope(tf.get_variable_scope()) as scope:
 
@@ -119,23 +135,33 @@ class ModelSingleSoftmax:
                 scope.reuse_variables()
                 rnn_outputs = tf.reshape(rnn_outputs, [-1, 2*n_hidden])
                 logits_pos = []
+                cost_pos = 0.0
                 if pos_classifier == "True":
                     logits_pos = tf.matmul(rnn_outputs, weights_pos) + biases_pos
                     losses_pos = tf.nn.softmax_cross_entropy_with_logits(logits=logits_pos, labels=labels_pos)
                     cost_pos = tf.reduce_mean(losses_pos)
                 logits = []
                 losses = []
+                cost_wsd = 0.0
                 if wsd_classifier == "True":
                     target_outputs = tf.gather(rnn_outputs, indices)
                     logits = tf.matmul(target_outputs, weights) + biases
                     losses = tf.nn.softmax_cross_entropy_with_logits(logits=logits, labels=labels)
                     cost_wsd = tf.reduce_mean(losses)
-                if pos_classifier == "True" and wsd_classifier == "True":
-                    cost = cost_pos + cost_wsd
-                elif wsd_classifier == "True":
-                    cost = cost_wsd
-                elif pos_classifier == "True":
-                    cost = cost_pos
+                logits_hyp = []
+                cost_hyp = []
+                if hypernym_classifier == "True":
+                    target_hyp_outputs = tf.gather(rnn_outputs, indices_hyp)
+                    logits_hyp = tf.matmul(target_hyp_outputs, weights_hyp) + biases_hyp
+                    losses_hyp = tf.nn.softmax_cross_entropy_with_logits(logits=logits_hyp, labels=labels_hyp)
+                    cost_hyp = tf.reduce_mean(losses_hyp)
+                cost = cost_wsd + cost_pos + cost_hyp
+                # if pos_classifier == "True" and wsd_classifier == "True":
+                #     cost = cost_pos + cost_wsd
+                # elif wsd_classifier == "True":
+                #     cost = cost_wsd
+                # elif pos_classifier == "True":
+                #     cost = cost_pos
 
             return cost, logits, losses, logits_pos
 
@@ -146,7 +172,9 @@ class ModelSingleSoftmax:
             embedded_inputs = embed_inputs(self.train_inputs)
         self.cost, self.logits, self.losses, self.logits_pos = biRNN_WSD(embedded_inputs, self.train_seq_lengths, self.train_indices,
                                                         self.weights, self.biases, self.train_labels, True, self.keep_prob,
-                                                        pos_classifier, wsd_classifier, self.weights_pos, self.biases_pos, self.labels_pos)
+                                                        pos_classifier, wsd_classifier, self.weights_pos, self.biases_pos,
+                                                        self.labels_pos, hypernym_classifier, self.weights_hyp, self.biases_hyp,
+                                                        self.indices_hyp, self.labels_hyp)
         self.train_op = tf.train.GradientDescentOptimizer(learning_rate).minimize(self.cost)
         #self.train_op = tf.train.AdadeltaOptimizer(learning_rate).minimize(self.cost)
         if vocab_size_lemmas > 0:
@@ -156,7 +184,9 @@ class ModelSingleSoftmax:
         tf.get_variable_scope().reuse_variables()
         _, self.val_logits, _, self.val_logits_pos = biRNN_WSD(embedded_inputs, self.val_seq_lengths, self.val_indices,
                                           self.weights, self.biases, self.val_labels, False, 1.0,
-                                          pos_classifier, wsd_classifier, self.weights_pos, self.biases_pos, self.val_labels_pos)
+                                          pos_classifier, wsd_classifier, self.weights_pos, self.biases_pos, self.val_labels_pos,
+                                          hypernym_classifier, self.weights_hyp, self.biases_hyp, self.val_hyp_indices,
+                                          self.val_labels_hyp)
 
 class ModelVectorSimilarity:
 
@@ -414,6 +444,8 @@ def run_epoch(session, model, data, keep_prob, mode, multitask="False"):
         words_to_disambiguate = data[4]
         indices = data[5]
         labels_pos = data[6]
+        labels_hyp = data[7]
+        indices_hyp = data[8]
         feed_dict = { model.train_seq_lengths : seq_lengths,
                       model.keep_prob : keep_prob}
         if wsd_classifier == "True":
@@ -425,6 +457,8 @@ def run_epoch(session, model, data, keep_prob, mode, multitask="False"):
             feed_dict.update({model.train_model_flags : words_to_disambiguate, model.train_indices : indices})
         if pos_classifier == "True":
             feed_dict.update({model.labels_pos : labels_pos})
+        if hypernym_classifier == "True":
+            feed_dict.update({model.labels_hyp : labels_hyp, model.indices_hyp : indices_hyp})
         if len(inputs) > 0:
             feed_dict.update({model.train_inputs: inputs})
         if len(input_lemmas) > 0:
@@ -636,9 +670,9 @@ if __name__ == "__main__":
     sensekey2synset = args.sensekey2synset
 
     if hypernym_classifier == "True":
-        hyponyms, hypernyms = data_ops.get_hypernymy_graph(hypernymy_rels)
+        hyponyms, syn2hyp = data_ops.get_hypernymy_graph(hypernymy_rels)
     else:
-        hyponyms, hypernyms = None, None
+        hyponyms, syn2hyp = None, None
 
     data = args.training_data
     known_lemmas = set()
@@ -652,8 +686,9 @@ if __name__ == "__main__":
     # else:
     #     sensekey2synset = pickle.load(open(os.path.join(data, "/home/alexander/dev/projects/BAN/neural-wsd/data/UnivRomaData/WSD_Training_Corpora/SemCor/sensekey2synset.pkl"), "rb"))
     if data_source == "naf":
-        data, lemma2synsets, lemma2id, synset2id, synID_mapping, id2synset, id2pos, known_lemmas, pos_types = \
-            data_ops.read_folder_semcor(data, wsd_method=wsd_method, f_lex=lexicon, hypernyms=hypernyms)
+        data, lemma2synsets, lemma2id, synset2id, synID_mapping, id2synset, id2pos, known_lemmas, pos_types, hyp2id = \
+            data_ops.read_folder_semcor(data, wsd_method=wsd_method, f_lex=lexicon,
+                                        hypernym_classifier=hypernym_classifier, syn2hyp=syn2hyp)
     elif data_source == "uniroma":
         data, lemma2synsets, lemma2id, synset2id, synID_mapping, id2synset, id2pos, known_lemmas, synset2freq = \
             data_ops.read_data_uniroma(data, sensekey2synset, wsd_method=wsd_method, f_lex=lexicon)
@@ -670,12 +705,15 @@ if __name__ == "__main__":
         train_data = data
         # TODO Change this line!
         if data_source == "naf" and diff_data_sources != "True":
-            val_data, lemma2synsets, lemma2id, synset2id, synID_mapping, id2synset, id2pos, known_lemmas, pos_types = \
-            data_ops.read_folder_semcor(test_data, lemma2synsets, lemma2id, synset2id, mode="test", wsd_method=wsd_method)
+            val_data, lemma2synsets, lemma2id, synset2id, synID_mapping, id2synset, id2pos, known_lemmas, pos_types, hyp2id = \
+            data_ops.read_folder_semcor(test_data, lemma2synsets, lemma2id, synset2id, mode="test",
+                                        wsd_method=wsd_method, hyp2id=hyp2id, hypernym_classifier=hypernym_classifier,
+                                        syn2hyp=syn2hyp)
         elif data_source == "uniroma" or diff_data_sources == "True":
             val_data, lemma2synsets, lemma2id, synset2id, synID_mapping, id2synset, id2pos, known_lemmas, synset2freq = \
             data_ops.read_data_uniroma(test_data, sensekey2synset, lemma2synsets, lemma2id, synset2id, synID_mapping,
-                                       id2synset, id2pos, known_lemmas, synset2freq, wsd_method=wsd_method, mode="test")
+                                       id2synset, id2pos, known_lemmas, synset2freq, wsd_method=wsd_method, mode="test",
+                                       hypernym_classifier=hypernym_classifier, syn2hyp=syn2hyp, hyp2id=hyp2id)
     # get mapping from pos_ids to pos labels:
     if pos_classifier == "True":
         id2pos = {}
@@ -715,11 +753,13 @@ if __name__ == "__main__":
         sense_embeddings = None
 
     val_inputs, val_input_lemmas, val_seq_lengths, val_labels, val_words_to_disambiguate, \
-    val_indices, val_lemmas_to_disambiguate, val_synsets_gold, val_pos_filters, val_pos_labels = data_ops.format_data\
+    val_indices, val_lemmas_to_disambiguate, val_synsets_gold, val_pos_filters, val_pos_labels, \
+    val_labels_hyp, val_indices_hyp = data_ops.format_data\
                                                     (wsd_method, val_data, src2id, src2id_lemmas, synset2id,
                                                      synID_mapping, seq_width, word_embedding_case, word_embedding_input,
                                                      sense_embeddings, 0, lemma_embedding_dim, pos_types, "evaluation",
-                                                     use_pos=use_pos, pos_classifier=pos_classifier)
+                                                     use_pos=use_pos, pos_classifier=pos_classifier,
+                                                     hypernym_classifier=hypernym_classifier, hyp2id=hyp2id)
 
     # Function to calculate the accuracy on a batch of results and gold labels
     def accuracy(logits, lemmas, synsets_gold, pos_filters, synset2id, indices=None, synID_mapping=synID_mapping,
@@ -821,12 +861,13 @@ if __name__ == "__main__":
     def new_batch (offset):
 
         batch = data[offset:(offset+batch_size)]
-        inputs, input_lemmas, seq_lengths, labels, words_to_disambiguate, indices, lemmas, synsets_gold, pos_filters, pos_labels = \
-            data_ops.format_data(wsd_method, batch, src2id, src2id_lemmas, synset2id, synID_mapping, seq_width,
+        inputs, input_lemmas, seq_lengths, labels, words_to_disambiguate, indices, lemmas, synsets_gold, pos_filters, \
+        pos_labels, hyp_labels, hyp_indices = data_ops.format_data(wsd_method, batch, src2id, src2id_lemmas, synset2id, synID_mapping, seq_width,
                                  word_embedding_case, word_embedding_input, sense_embeddings, dropword,
-                                 lemma_embedding_dim=lemma_embedding_dim, pos_types=pos_types, use_pos=use_pos, pos_classifier=pos_classifier)
+                                 lemma_embedding_dim=lemma_embedding_dim, pos_types=pos_types, use_pos=use_pos,
+                                 pos_classifier=pos_classifier, hypernym_classifier=hypernym_classifier, hyp2id=hyp2id)
         return inputs, input_lemmas, seq_lengths, labels, words_to_disambiguate, indices, lemmas, synsets_gold, \
-               pos_filters, pos_labels
+               pos_filters, pos_labels, hyp_labels, hyp_indices
 
     model = None
     if wsd_method == "similarity":
@@ -841,7 +882,8 @@ if __name__ == "__main__":
         model = ModelSingleSoftmax(synset2id, word_embedding_dim, vocab_size, batch_size, seq_width, n_hidden,
                                    n_hidden_layers, val_inputs, val_input_lemmas, val_seq_lengths, val_words_to_disambiguate,
                                    val_indices, val_labels, lemma_embedding_dim, len(src2id_lemmas), wsd_classifier,
-                                   pos_classifier, len(pos_types), val_pos_labels)
+                                   pos_classifier, len(pos_types), val_pos_labels, hypernym_classifier, hyp2id,
+                                   val_labels_hyp, val_indices_hyp)
     elif wsd_method == "multitask":
         if word_embedding_input == "wordform":
             output_embedding_dim = word_embedding_dim
@@ -921,10 +963,11 @@ if __name__ == "__main__":
     for step in range(training_iters):
         offset = (step * batch_size) % (len(data) - batch_size)
         inputs, input_lemmas, seq_lengths, labels, words_to_disambiguate, indices, lemmas_to_disambiguate, \
-        synsets_gold, pos_filters, pos_labels = new_batch(offset)
+        synsets_gold, pos_filters, pos_labels, hyp_labels, hyp_indices = new_batch(offset)
         if (len(labels) == 0):
             continue
-        input_data = [inputs, input_lemmas, seq_lengths, labels, words_to_disambiguate, indices, pos_labels]
+        input_data = [inputs, input_lemmas, seq_lengths, labels, words_to_disambiguate, indices, pos_labels, hyp_labels,
+                      hyp_indices]
         val_accuracy = 0.0
         if (step % 100 == 0):
             print "Step number " + str(step)

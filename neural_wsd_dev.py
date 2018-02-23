@@ -69,7 +69,7 @@ class ModelSingleSoftmax:
             self.val_labels_pos = None
         if hypernym_classifier == "True":
             self.weights_hyp = tf.get_variable(name="softmax_hyp-w", shape=[2*n_hidden, len(hyp2id)], dtype=tf.float32)
-            self.biases_hyp = tf.get_variable(name="softmax_jup-b", shape=[len(hyp2id)], dtype=tf.float32)
+            self.biases_hyp = tf.get_variable(name="softmax_hyp-b", shape=[len(hyp2id)], dtype=tf.float32)
             self.labels_hyp = tf.placeholder(name="hyp_labels", shape=[None, len(hyp2id)], dtype=tf.int32)
             self.indices_hyp = tf.placeholder(name="hyp_indices", shape=[None], dtype=tf.int32)
             self.val_labels_hyp = tf.constant(val_hyp_labels, tf.int32)
@@ -149,7 +149,7 @@ class ModelSingleSoftmax:
                     losses = tf.nn.softmax_cross_entropy_with_logits(logits=logits, labels=labels)
                     cost_wsd = tf.reduce_mean(losses)
                 logits_hyp = []
-                cost_hyp = []
+                cost_hyp = 0.0
                 if hypernym_classifier == "True":
                     target_hyp_outputs = tf.gather(rnn_outputs, indices_hyp)
                     logits_hyp = tf.matmul(target_hyp_outputs, weights_hyp) + biases_hyp
@@ -163,18 +163,19 @@ class ModelSingleSoftmax:
                 # elif pos_classifier == "True":
                 #     cost = cost_pos
 
-            return cost, logits, losses, logits_pos
+            return cost, logits, losses, logits_pos, logits_hyp
 
         # if lemma embeddings are passed, then concatenate them with the word embeddings
         if vocab_size_lemmas > 0:
             embedded_inputs = embed_inputs(self.train_inputs, self.train_inputs_lemmas)
         else:
             embedded_inputs = embed_inputs(self.train_inputs)
-        self.cost, self.logits, self.losses, self.logits_pos = biRNN_WSD(embedded_inputs, self.train_seq_lengths, self.train_indices,
-                                                        self.weights, self.biases, self.train_labels, True, self.keep_prob,
-                                                        pos_classifier, wsd_classifier, self.weights_pos, self.biases_pos,
-                                                        self.labels_pos, hypernym_classifier, self.weights_hyp, self.biases_hyp,
-                                                        self.indices_hyp, self.labels_hyp)
+        self.cost, self.logits, self.losses, self.logits_pos, self.logits_hyp = \
+                biRNN_WSD(embedded_inputs, self.train_seq_lengths, self.train_indices,
+                        self.weights, self.biases, self.train_labels, True, self.keep_prob,
+                        pos_classifier, wsd_classifier, self.weights_pos, self.biases_pos,
+                        self.labels_pos, hypernym_classifier, self.weights_hyp, self.biases_hyp,
+                        self.indices_hyp, self.labels_hyp)
         self.train_op = tf.train.GradientDescentOptimizer(learning_rate).minimize(self.cost)
         #self.train_op = tf.train.AdadeltaOptimizer(learning_rate).minimize(self.cost)
         if vocab_size_lemmas > 0:
@@ -182,11 +183,12 @@ class ModelSingleSoftmax:
         else:
             embedded_inputs = embed_inputs(self.val_inputs)
         tf.get_variable_scope().reuse_variables()
-        _, self.val_logits, _, self.val_logits_pos = biRNN_WSD(embedded_inputs, self.val_seq_lengths, self.val_indices,
-                                          self.weights, self.biases, self.val_labels, False, 1.0,
-                                          pos_classifier, wsd_classifier, self.weights_pos, self.biases_pos, self.val_labels_pos,
-                                          hypernym_classifier, self.weights_hyp, self.biases_hyp, self.val_hyp_indices,
-                                          self.val_labels_hyp)
+        _, self.val_logits, _, self.val_logits_pos, self.val_logits_hyp = \
+            biRNN_WSD(embedded_inputs, self.val_seq_lengths, self.val_indices,
+                      self.weights, self.biases, self.val_labels, False, 1.0,
+                      pos_classifier, wsd_classifier, self.weights_pos, self.biases_pos, self.val_labels_pos,
+                      hypernym_classifier, self.weights_hyp, self.biases_hyp, self.val_hyp_indices,
+                      self.val_labels_hyp)
 
 class ModelVectorSimilarity:
 
@@ -473,7 +475,8 @@ def run_epoch(session, model, data, keep_prob, mode, multitask="False"):
             ops = [model.train_op, model.cost_c, model.cost_r, model.logits, model.val_logits,
                    model.output_emb, model.val_output_emb]
         else:
-            ops = [model.train_op, model.cost, model.logits, model.val_logits, model.logits_pos, model.val_logits_pos]
+            ops = [model.train_op, model.cost, model.logits, model.val_logits, model.logits_pos, model.val_logits_pos,
+                   model.logits_hyp, model.val_logits_hyp]
     elif mode == "application":
         ops = [model.val_logits]
     fetches = session.run(ops, feed_dict=feed_dict)
@@ -754,7 +757,7 @@ if __name__ == "__main__":
 
     val_inputs, val_input_lemmas, val_seq_lengths, val_labels, val_words_to_disambiguate, \
     val_indices, val_lemmas_to_disambiguate, val_synsets_gold, val_pos_filters, val_pos_labels, \
-    val_labels_hyp, val_indices_hyp = data_ops.format_data\
+    val_labels_hyp, val_indices_hyp, val_lemmas_hyp, val_pos_filters_hyp = data_ops.format_data\
                                                     (wsd_method, val_data, src2id, src2id_lemmas, synset2id,
                                                      synID_mapping, seq_width, word_embedding_case, word_embedding_input,
                                                      sense_embeddings, 0, lemma_embedding_dim, pos_types, "evaluation",
@@ -763,8 +766,11 @@ if __name__ == "__main__":
 
     # Function to calculate the accuracy on a batch of results and gold labels
     def accuracy(logits, lemmas, synsets_gold, pos_filters, synset2id, indices=None, synID_mapping=synID_mapping,
-                 pos_classifier="False", wsd_classifier="True", use_gold_pos="False", logits_pos=None, labels_pos=None):
+                 pos_classifier="False", wsd_classifier="True", use_gold_pos="False", logits_pos=None, labels_pos=None,
+                 hypernym_classifier="False", logits_hyp=None, labels_hyp=None, lemmas_hyp=None, pos_filters_hyp=None):
 
+        if pos_classifier == "False":
+            use_gold_pos = "True"
         accuracy_wsd = 0.0
         if wsd_classifier == "True":
             matching_cases = 0
@@ -825,7 +831,41 @@ if __name__ == "__main__":
                 eval_cases_pos += 1
             accuracy_pos = (100.0 * matching_cases_pos) / eval_cases_pos
 
-        return accuracy_wsd, accuracy_pos
+        accuracy_hyp = 0.0
+        if hypernym_classifier == "True":
+            matching_cases_hyp = 0
+            eval_cases_hyp = 0
+            for i, logit_hyp in enumerate(logits_hyp):
+                lemma = lemmas_hyp[i]
+                gold_pos = pos_filters_hyp[i]
+                poss_hypernyms = []
+                synsets = lemma2synsets[lemma]
+                max = -10000
+                max_id = -1
+                for syn in synsets:
+                    if syn not in syn2hyp:
+                        continue
+                    if syn.split("-")[1] != gold_pos:
+                        continue
+                    for hyp in syn2hyp[syn]:
+                        if hyp in hyp2id:
+                            poss_hypernyms.append(hyp2id[hyp])
+                for hyp in poss_hypernyms:
+                    if logit_hyp[hyp] > max:
+                        max_id = hyp
+                        max = logit_hyp[hyp]
+                if max_id == np.argmax(labels_hyp[i]):
+                    matching_cases_hyp += 1
+                eval_cases_hyp += 1
+            # for i, logit_hyp in enumerate(logits_hyp):
+            #     if np.amax(labels_hyp[i]) == 0:
+            #         continue
+            #     if np.argmax(logit_hyp) == np.argmax(labels_hyp[i]):
+            #         matching_cases_hyp += 1
+            #     eval_cases_hyp += 1
+            accuracy_hyp = (100.0 * matching_cases_hyp) / eval_cases_hyp
+
+        return accuracy_wsd, accuracy_pos, accuracy_hyp
 
     def accuracy_cosine_distance (logits, lemmas, synsets_gold, pos_filters):
 
@@ -862,7 +902,7 @@ if __name__ == "__main__":
 
         batch = data[offset:(offset+batch_size)]
         inputs, input_lemmas, seq_lengths, labels, words_to_disambiguate, indices, lemmas, synsets_gold, pos_filters, \
-        pos_labels, hyp_labels, hyp_indices = data_ops.format_data(wsd_method, batch, src2id, src2id_lemmas, synset2id, synID_mapping, seq_width,
+        pos_labels, hyp_labels, hyp_indices, _, _ = data_ops.format_data(wsd_method, batch, src2id, src2id_lemmas, synset2id, synID_mapping, seq_width,
                                  word_embedding_case, word_embedding_input, sense_embeddings, dropword,
                                  lemma_embedding_dim=lemma_embedding_dim, pos_types=pos_types, use_pos=use_pos,
                                  pos_classifier=pos_classifier, hypernym_classifier=hypernym_classifier, hyp2id=hyp2id)
@@ -992,10 +1032,12 @@ if __name__ == "__main__":
                 #     with open(os.path.join(args.save_path, 'src2id_lemmas.pkl'), 'wb') as output:
                 #         pickle.dump(src2id_lemmas, output, pickle.HIGHEST_PROTOCOL)
             elif wsd_method == "fullsoftmax":
-                val_accuracy, val_accuracy_pos = accuracy(fetches[3], val_lemmas_to_disambiguate, val_synsets_gold,
+                val_accuracy, val_accuracy_pos, val_accuracy_hyp = accuracy(fetches[3], val_lemmas_to_disambiguate, val_synsets_gold,
                                                           val_pos_filters, synset2id, val_indices, pos_classifier=pos_classifier,
                                                           wsd_classifier=wsd_classifier, logits_pos=fetches[5],
-                                                          labels_pos=val_pos_labels)
+                                                          labels_pos=val_pos_labels, hypernym_classifier=hypernym_classifier,
+                                                          logits_hyp=fetches[7], labels_hyp=val_labels_hyp, lemmas_hyp=val_lemmas_hyp,
+                                                          pos_filters_hyp=val_pos_filters_hyp)
                 results.write('Minibatch accuracy: ' + str(accuracy(fetches[2], lemmas_to_disambiguate, synsets_gold,
                                                                     pos_filters, synset2id, indices, pos_classifier=pos_classifier,
                                                                     wsd_classifier=wsd_classifier, logits_pos=fetches[4],
@@ -1022,6 +1064,9 @@ if __name__ == "__main__":
             if pos_classifier == "True":
                 print "Validation accuracy for POS: " + str(val_accuracy_pos)
                 results.write('Validation accuracy for POS: ' + str(val_accuracy_pos) + '\n')
+            if hypernym_classifier == "True":
+                print "Validation accuracy for hypernyms: " + str(val_accuracy_hyp)
+                results.write('Validation accuracy for hypernyms: ' + str(val_accuracy_hyp) + '\n')
             batch_loss = 0.0
             if wsd_method == "multitask":
                 batch_loss_r = 0.0
@@ -1035,7 +1080,7 @@ if __name__ == "__main__":
         if val_accuracy > best_accuracy:
             best_accuracy = val_accuracy
             if pos_classifier == "True" and wsd_classifier == "True":
-                val_accuracy_gold_pos, _ = accuracy(fetches[3], val_lemmas_to_disambiguate, val_synsets_gold,
+                val_accuracy_gold_pos, _, _ = accuracy(fetches[3], val_lemmas_to_disambiguate, val_synsets_gold,
                                                           val_pos_filters, synset2id, val_indices,
                                                           pos_classifier=pos_classifier, use_gold_pos="True",
                                                           logits_pos=fetches[5], labels_pos=val_pos_labels)

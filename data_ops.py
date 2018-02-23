@@ -42,15 +42,15 @@ def get_hypernymy_graph(f_hypernymy_rels):
         hypernym += "-" + pos  # id_to_pos[hypernym]
         # print(hyponym, hypernym)
         if hypernym in graph:
-            graph[hypernym].add(hyponym)
+            graph[hypernym].append(hyponym)
         else:
-            graph[hypernym] = set()
-            graph[hypernym].add(hyponym)
+            graph[hypernym] = []
+            graph[hypernym].append(hyponym)
         if hyponym in bottomup_graph:
-            bottomup_graph[hyponym].add(hypernym)
+            bottomup_graph[hyponym].append(hypernym)
         else:
-            bottomup_graph[hyponym] = set()
-            bottomup_graph[hyponym].add(hypernym)
+            bottomup_graph[hyponym] = []
+            bottomup_graph[hyponym].append(hypernym)
     return (graph, bottomup_graph)
 
 
@@ -462,8 +462,10 @@ def format_data (wsd_method, input_data, src2id, src2id_lemmas, synset2id, synID
     ind_count = 0
     ind_count_hyp = 0
     lemmas_to_disambiguate = []
+    lemmas_hyp_to_disambiguate = []
     synsets_gold = []
     pos_filters = []
+    pos_filers_hyp = []
     pos_labels = []
     pos_map_penn = {"!" : ".", "#" : ".", "$" : ".", "''" : ".", "(" : ".", ")" : ".", "," : ".", "-LRB-" : ".", "-RRB-" : ".",
                "." : ".", ":" : ".", "?" : ".", "CC" : "CONJ", "CD" : "NUM", "CD|RB" : "X", "DT" : "DET", "EX" : "DET",
@@ -585,6 +587,11 @@ def format_data (wsd_method, input_data, src2id, src2id_lemmas, synset2id, synID
                             current_label_hyp[hyp] = 1.0/len(word[6])
                         indices_hyp.append(copy(ind_count))
                         current_labels_hyp.append(current_label_hyp)
+                        lemmas_hyp_to_disambiguate.append(word[1])
+                        if word[2] in pos_mapper:
+                            pos_filers_hyp.append(pos_mapper[word[2]])
+                        else:
+                            pos_filers_hyp.append(pos_mapper[pos_map_penn[word[2]]])
                 elif wsd_method == "multitask":
                         for syn in word[4]:
                             if syn < len(sense_embeddings):
@@ -671,7 +678,7 @@ def format_data (wsd_method, input_data, src2id, src2id_lemmas, synset2id, synID
     inputs_lemmas = np.asarray(inputs_lemmas)
 
     return inputs, inputs_lemmas, seq_lengths, labels, words_to_disambiguate, indices, lemmas_to_disambiguate, \
-           synsets_gold, pos_filters, pos_labels, labels_hyp, indices_hyp
+           synsets_gold, pos_filters, pos_labels, labels_hyp, indices_hyp, lemmas_hyp_to_disambiguate, pos_filers_hyp
 
 
 def softmax(w, t = 1.0):

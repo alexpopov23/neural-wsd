@@ -359,26 +359,27 @@ class ModelMultiTaskLearning:
 def run_epoch(session, model, data, keep_prob, mode, multitask="False"):
 
     feed_dict = {}
+    inputs = data[0]
+    input_lemmas = data[1]
+    seq_lengths = data[2]
+    labels = data[3]
+    words_to_disambiguate = data[4]
+    indices = data[5]
+    feed_dict = { model.train_seq_lengths : seq_lengths,
+                  model.train_model_flags : words_to_disambiguate,
+                  model.train_indices : indices,
+                  model.keep_prob : keep_prob}
+    if len(inputs) > 0:
+        feed_dict.update({model.train_inputs: inputs})
+    if len(input_lemmas) > 0:
+        feed_dict.update({model.train_inputs_lemmas : input_lemmas})
     if mode != "application":
-        inputs = data[0]
-        input_lemmas = data[1]
-        seq_lengths = data[2]
-        labels = data[3]
-        words_to_disambiguate = data[4]
-        indices = data[5]
-        feed_dict = { model.train_seq_lengths : seq_lengths,
-                      model.train_model_flags : words_to_disambiguate,
-                      model.train_indices : indices,
-                      model.keep_prob : keep_prob}
+
         if multitask == "True":
             feed_dict.update({model.train_labels_classification: labels[0]})
             feed_dict.update({model.train_labels_regression: labels[1]})
         else:
             feed_dict.update({model.train_labels: labels})
-        if len(inputs) > 0:
-            feed_dict.update({model.train_inputs: inputs})
-        if len(input_lemmas) > 0:
-            feed_dict.update({model.train_inputs_lemmas : input_lemmas})
     if mode == "train":
         if multitask == "True":
             ops = [model.train_op, model.cost_c, model.cost_r, model.logits, model.output_emb]
@@ -391,7 +392,7 @@ def run_epoch(session, model, data, keep_prob, mode, multitask="False"):
         else:
             ops = [model.train_op, model.cost, model.logits, model.val_logits]
     elif mode == "application":
-        ops = [model.val_logits]
+        ops = [model.logits]
     fetches = session.run(ops, feed_dict=feed_dict)
 
     return fetches
@@ -454,6 +455,8 @@ if __name__ == "__main__":
                         help='Where to take the test data from, if using just one corpus (SemCor).')
     parser.add_argument('-test_data', dest='test_data', required=False, default="None",
                         help='The path to the gold corpus used for testing.')
+    parser.add_argument('-app_data', dest='app_data', required=True, default="None",
+                        help='The path to the gold corpus used for testing (outside of the dev set).')
     parser.add_argument('-lexicon', dest='lexicon', required=False, default="None",
                         help='The path to the location of the lexicon file.')
     parser.add_argument('-lexicon_mode', dest='lexicon_mode', required=False, default="full_dictionary",
@@ -672,7 +675,7 @@ if __name__ == "__main__":
                 matching_cases += 1
             eval_cases += 1
 
-        return (100.0 * matching_cases) / eval_cases
+        return (100.0 * matching_cases) / eval_cases, matching_cases, eval_cases
 
     def accuracy_cosine_distance (logits, lemmas, synsets_gold, pos_filters):
 
@@ -704,13 +707,29 @@ if __name__ == "__main__":
         return (100.0 * matching_cases) / eval_cases
 
     # Create a new batch from the training data (data, labels and sequence lengths)
-    def new_batch (offset):
-
-        batch = data[offset:(offset+batch_size)]
+    def new_batch (offset, mode="train"):
+        batch, full_batch, end_offset, dataset_end = [], [], 0, False
+        if (offset+batch_size) > len(data):
+            dataset_end = True
+            end_offset = len(data)
+            if mode != "train":
+                batch = data[offset:end_offset]
+                full_batch = data[offset:end_offset] + data[:(offset + batch_size - end_offset)]
+            else:
+                batch = data[offset:end_offset] + data[:(offset + batch_size - end_offset)]
+        else:
+            end_offset = offset + batch_size
+            batch = data[offset:end_offset]
+        # batch = data[offset:end_offset]
         inputs, input_lemmas, seq_lengths, labels, words_to_disambiguate, indices, lemmas, synsets_gold, pos_filters = \
             data_ops.format_data(wsd_method, batch, src2id, src2id_lemmas, synset2id, synID_mapping, seq_width,
                                  word_embedding_case, word_embedding_input, sense_embeddings, dropword,
                                  lemma_embedding_dim=lemma_embedding_dim, use_pos=use_pos)
+        if mode != "train" and dataset_end:
+            inputs, input_lemmas, seq_lengths, labels, words_to_disambiguate, _, _, _, _ = \
+                data_ops.format_data(wsd_method, full_batch, src2id, src2id_lemmas, synset2id, synID_mapping, seq_width,
+                                     word_embedding_case, word_embedding_input, sense_embeddings, dropword,
+                                     lemma_embedding_dim=lemma_embedding_dim, use_pos=use_pos)
         return inputs, input_lemmas, seq_lengths, labels, words_to_disambiguate, indices, lemmas, synsets_gold, pos_filters
 
     model = None
@@ -742,29 +761,30 @@ if __name__ == "__main__":
     saver = tf.train.Saver()
     #session.run(tf.global_variables_initializer())
     if mode == "application":
-        saver.restore(session, os.path.join(args.save_path, "model/model.ckpt-97700"))
-        #TODO: finish this module
-        fetches = run_epoch(session, model, val_data, 1, mode="application")
-        acc = accuracy(fetches[0], val_lemmas_to_disambiguate, val_synsets_gold, val_pos_filters, synset2id)
-        print acc
-        #lemma2synsets =
-        # for i in range(len(fetches)):
-        #     print "Input sentence is: ",
-        #     for j in xrange(len(val_data[0][i])):
-        #         print val_data[0][i][j][0] + " ",
-        #     print "\n"
-        #     #_predictions = session.run([predictions], feed_dict=feed_dict)[0]
-        #     # _predictions = _predictions.eval()
-        #     # print "Output sequence is: ",
-        #     # for k in xrange(fetches[i]):
-        #     #     # Print the N best candidates for each word
-        #     #     # best_five = np.argsort(_predictions[k])[-5:]
-        #     #     # for candidate in best_five:
-        #     #     #    print id2target[candidate] + "|",
-        #     #     # print "\n"
-        #     #     # Print just the top scoring candidate for each word
-        #     #     #print id2target[np.argmax(_predictions[k])] + " ",
-        #     # print "\n"
+        saver.restore(session, os.path.join(args.save_path, "model/model.ckpt-98100"))
+        app_data = args.app_data
+        data, lemma2synsets, lemma2id, synset2id, synID_mapping, id2synset, id2pos, known_lemmas, synset2freq = \
+        data_ops.read_data_uniroma(app_data, sensekey2synset, lemma2synsets, lemma2id, synset2id, synID_mapping,
+                                   id2synset, id2pos, known_lemmas, synset2freq, wsd_method=wsd_method, mode="test")
+        # inputs, input_lemmas, seq_lengths, labels, words_to_disambiguate, \
+        # indices, lemmas_to_disambiguate, synsets_gold, pos_filters = data_ops.format_data\
+        #                                                 (wsd_method, data, src2id, src2id_lemmas, synset2id,
+        #                                                  synID_mapping, seq_width, word_embedding_case, word_embedding_input,
+        #                                                  sense_embeddings, 0, lemma_embedding_dim, "evaluation", use_pos=use_pos)
+        match_cases = 0
+        eval_cases = 0
+        for step in range(len(data) / batch_size + 1):
+            offset = (step * batch_size) % (len(data))
+            inputs, input_lemmas, seq_lengths, labels, words_to_disambiguate, indices, lemmas_to_disambiguate, \
+            synsets_gold, pos_filters = new_batch(offset, mode="application")
+            input_data = [inputs, input_lemmas, seq_lengths, labels, words_to_disambiguate, indices]
+            fetches = run_epoch(session, model, input_data, 1, mode="application")
+            acc, match_cases_count, eval_cases_count = accuracy(fetches[0], lemmas_to_disambiguate, synsets_gold,
+                                                    pos_filters, synset2id)
+            match_cases += match_cases_count
+            eval_cases += eval_cases_count
+        accuracy = (100.0 * match_cases) / eval_cases
+        print accuracy
         exit()
     else:
         init = tf.initialize_all_variables()

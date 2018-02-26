@@ -648,13 +648,14 @@ if __name__ == "__main__":
             gold_pos = pos_filters[i]
             lemma = lemmas[i]
             if lemma not in known_lemmas:
-                if len(lemma2synsets[lemma]) == 1:
-                    max_id = lemma2synsets[lemma][0]
-                elif len(lemma2synsets[lemma]) > 1:
-                    if synset2freq[lemma] > 0:
-                        max_id = synset2freq[lemma]
-                    else:
-                        max_id = random.choice(lemma2synsets[lemma])
+                max_id = lemma2synsets[lemma][0]
+                # if len(lemma2synsets[lemma]) == 1:
+                #     max_id = lemma2synsets[lemma][0]
+                # elif len(lemma2synsets[lemma]) > 1:
+                #     if synset2freq[lemma] > 0:
+                #         max_id = synset2freq[lemma]
+                #     else:
+                #         max_id = random.choice(lemma2synsets[lemma])
             else:
                 for synset in lemma2synsets[lemma]:
                     id = synset2id[synset]

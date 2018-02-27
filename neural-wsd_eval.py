@@ -703,16 +703,17 @@ if __name__ == "__main__":
             if best_fit in synsets_gold[i]:
                 matching_cases += 1
             eval_cases += 1
+            accuracy = (100.0 * matching_cases) / eval_cases
 
-        return (100.0 * matching_cases) / eval_cases
+        return accuracy, matching_cases, eval_cases
 
     # Create a new batch from the training data (data, labels and sequence lengths)
-    def new_batch (offset, mode="train"):
+    def new_batch (offset, mode="training"):
         batch, full_batch, end_offset, dataset_end = [], [], 0, False
         if (offset+batch_size) > len(data):
             dataset_end = True
             end_offset = len(data)
-            if mode != "train":
+            if mode != "training":
                 batch = data[offset:end_offset]
                 full_batch = data[offset:end_offset] + data[:(offset + batch_size - end_offset)]
             else:
@@ -724,12 +725,12 @@ if __name__ == "__main__":
         inputs, input_lemmas, seq_lengths, labels, words_to_disambiguate, indices, lemmas, synsets_gold, pos_filters = \
             data_ops.format_data(wsd_method, batch, src2id, src2id_lemmas, synset2id, synID_mapping, seq_width,
                                  word_embedding_case, word_embedding_input, sense_embeddings, dropword,
-                                 lemma_embedding_dim=lemma_embedding_dim, use_pos=use_pos)
-        if mode != "train" and dataset_end:
+                                 lemma_embedding_dim=lemma_embedding_dim, use_pos=use_pos, mode=mode)
+        if mode != "training" and dataset_end:
             inputs, input_lemmas, seq_lengths, labels, words_to_disambiguate, _, _, _, _ = \
                 data_ops.format_data(wsd_method, full_batch, src2id, src2id_lemmas, synset2id, synID_mapping, seq_width,
                                      word_embedding_case, word_embedding_input, sense_embeddings, dropword,
-                                     lemma_embedding_dim=lemma_embedding_dim, use_pos=use_pos)
+                                     lemma_embedding_dim=lemma_embedding_dim, use_pos=use_pos, mode=mode)
         return inputs, input_lemmas, seq_lengths, labels, words_to_disambiguate, indices, lemmas, synsets_gold, pos_filters
 
     model = None
@@ -761,16 +762,11 @@ if __name__ == "__main__":
     saver = tf.train.Saver()
     #session.run(tf.global_variables_initializer())
     if mode == "application":
-        saver.restore(session, os.path.join(args.save_path, "model/model.ckpt-98100"))
+        saver.restore(session, os.path.join(args.save_path, "model/model.ckpt-94200"))
         app_data = args.app_data
         data, lemma2synsets, lemma2id, synset2id, synID_mapping, id2synset, id2pos, known_lemmas, synset2freq = \
         data_ops.read_data_uniroma(app_data, sensekey2synset, lemma2synsets, lemma2id, synset2id, synID_mapping,
                                    id2synset, id2pos, known_lemmas, synset2freq, wsd_method=wsd_method, mode="test")
-        # inputs, input_lemmas, seq_lengths, labels, words_to_disambiguate, \
-        # indices, lemmas_to_disambiguate, synsets_gold, pos_filters = data_ops.format_data\
-        #                                                 (wsd_method, data, src2id, src2id_lemmas, synset2id,
-        #                                                  synID_mapping, seq_width, word_embedding_case, word_embedding_input,
-        #                                                  sense_embeddings, 0, lemma_embedding_dim, "evaluation", use_pos=use_pos)
         match_cases = 0
         eval_cases = 0
         for step in range(len(data) / batch_size + 1):
@@ -779,8 +775,8 @@ if __name__ == "__main__":
             synsets_gold, pos_filters = new_batch(offset, mode="application")
             input_data = [inputs, input_lemmas, seq_lengths, labels, words_to_disambiguate, indices]
             fetches = run_epoch(session, model, input_data, 1, mode="application")
-            acc, match_cases_count, eval_cases_count = accuracy(fetches[0], lemmas_to_disambiguate, synsets_gold,
-                                                    pos_filters, synset2id)
+            acc, match_cases_count, eval_cases_count = accuracy_cosine_distance(fetches[0], lemmas_to_disambiguate,
+                                                                                synsets_gold, pos_filters)
             match_cases += match_cases_count
             eval_cases += eval_cases_count
         accuracy = (100.0 * match_cases) / eval_cases

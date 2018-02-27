@@ -299,9 +299,11 @@ def read_data_uniroma (path, sensekey2synset, lemma2synsets={}, lemma2id={}, syn
     count_ambig = 0
     count_missing1 = 0
     count_missing2 = 0
-    for sentence in data:
+    count_inst = 0
+    for i, sentence in enumerate(data):
         for word in sentence:
             if word[-1][0] != "unspecified":
+                count_inst += 1
                 if len(word[-1]) > 1:
                     count_ambig += 1
                 synsets = []
@@ -345,12 +347,14 @@ def format_data (wsd_method, input_data, src2id, src2id_lemmas, synset2id, synID
     # a list of the words in the sentences to be disambiguated (indexed by integers)
     indices = []
     ind_count = 0
+    count_inst = 0
     lemmas_to_disambiguate = []
     synsets_gold = []
     pos_filters = []
     pos_mapper = {"NOUN":"n", "VERB":"v", "ADJ":"a", "ADV":"r"}
     for i, sentence in enumerate(input_data):
         if len(sentence) > seq_width:
+            print "Max length is " + str(len(sentence))
             sentence = sentence[:seq_width]
         current_input = []
         current_input_lemmas = []
@@ -429,6 +433,7 @@ def format_data (wsd_method, input_data, src2id, src2id_lemmas, synset2id, synID
                         else:
                             current_input_lemmas.append(src2id_lemmas["UNK"])
             if (word[-1][0] > -1):
+                count_inst += 1
                 current_label = np.zeros([lemma_embedding_dim], dtype=float)
                 if wsd_method == "similarity":
                     # TODO fix the handling of lists of synsets, like in fullmax case

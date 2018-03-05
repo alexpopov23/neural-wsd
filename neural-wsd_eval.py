@@ -642,6 +642,8 @@ if __name__ == "__main__":
 
         matching_cases = 0
         eval_cases = 0
+        matching_cases_be = 0
+        eval_cases_be = 0
         for i, logit in enumerate(logits):
             max = -10000
             max_id = -1
@@ -673,14 +675,20 @@ if __name__ == "__main__":
             #     pruned_logit[max_id] = max * -1
             if max_id in gold_synsets:
                 matching_cases += 1
+                if lemma == "have":
+                    matching_cases_be += 1
             eval_cases += 1
+            if lemma == "have":
+                eval_cases_be += 1
 
-        return (100.0 * matching_cases) / eval_cases, matching_cases, eval_cases
+        return (100.0 * matching_cases) / eval_cases, matching_cases, eval_cases, matching_cases_be, eval_cases_be
 
     def accuracy_cosine_distance (logits, lemmas, synsets_gold, pos_filters):
 
         matching_cases = 0
+        matching_cases_be = 0
         eval_cases = 0
+        eval_cases_be = 0
         for i, logit in enumerate(logits):
             lemma = lemmas[i]
             poss_synsets = lemma2synsets[lemma]
@@ -702,10 +710,14 @@ if __name__ == "__main__":
                     best_fit = synset
             if best_fit in synsets_gold[i]:
                 matching_cases += 1
+                if lemma == "have":
+                    matching_cases_be += 1
             eval_cases += 1
+            if lemma == "have":
+                eval_cases_be += 1
             accuracy = (100.0 * matching_cases) / eval_cases
 
-        return accuracy, matching_cases, eval_cases
+        return accuracy, matching_cases, eval_cases, matching_cases_be, eval_cases_be
 
     # Create a new batch from the training data (data, labels and sequence lengths)
     def new_batch (offset, mode="training"):
@@ -762,25 +774,35 @@ if __name__ == "__main__":
     saver = tf.train.Saver()
     #session.run(tf.global_variables_initializer())
     if mode == "application":
-        saver.restore(session, os.path.join(args.save_path, "model/model.ckpt-94200"))
+        saver.restore(session, os.path.join(args.save_path, "model/model.ckpt-95700"))
         app_data = args.app_data
         data, lemma2synsets, lemma2id, synset2id, synID_mapping, id2synset, id2pos, known_lemmas, synset2freq = \
         data_ops.read_data_uniroma(app_data, sensekey2synset, lemma2synsets, lemma2id, synset2id, synID_mapping,
                                    id2synset, id2pos, known_lemmas, synset2freq, wsd_method=wsd_method, mode="test")
         match_cases = 0
         eval_cases = 0
+        match_cases_be = 0
+        eval_cases_be = 0
         for step in range(len(data) / batch_size + 1):
             offset = (step * batch_size) % (len(data))
             inputs, input_lemmas, seq_lengths, labels, words_to_disambiguate, indices, lemmas_to_disambiguate, \
             synsets_gold, pos_filters = new_batch(offset, mode="application")
             input_data = [inputs, input_lemmas, seq_lengths, labels, words_to_disambiguate, indices]
             fetches = run_epoch(session, model, input_data, 1, mode="application")
-            acc, match_cases_count, eval_cases_count = accuracy_cosine_distance(fetches[0], lemmas_to_disambiguate,
-                                                                                synsets_gold, pos_filters)
+            if wsd_method == "similarity":
+                acc, match_cases_count, eval_cases_count, match_be, eval_be = accuracy_cosine_distance(fetches[0], lemmas_to_disambiguate,
+                                                                                    synsets_gold, pos_filters)
+            elif wsd_method == "fullsoftmax":
+                acc, match_cases_count, eval_cases_count, match_be, eval_be = accuracy(fetches[0], lemmas_to_disambiguate, synsets_gold,
+                                                                    pos_filters, synset2id)
             match_cases += match_cases_count
             eval_cases += eval_cases_count
+            match_cases_be += match_be
+            eval_cases_be += eval_be
         accuracy = (100.0 * match_cases) / eval_cases
+        # accuracy_be = (100.0 * match_cases_be) / eval_cases_be
         print accuracy
+        # print accuracy_be
         exit()
     else:
         init = tf.initialize_all_variables()

@@ -490,7 +490,7 @@ if __name__ == "__main__":
     src2id_lemmas = {}
     if word_embeddings_src_path != None:
         if word_embedding_method == "gensim":
-            word_embeddings_model = KeyedVectors.load_word2vec_format(word_embeddings_src_path, binary=True)
+            word_embeddings_model = KeyedVectors.load_word2vec_format(word_embeddings_src_path, binary=False)
             word_embeddings = word_embeddings_model.syn0
             id2src = word_embeddings_model.index2word
             for i, word in enumerate(id2src):

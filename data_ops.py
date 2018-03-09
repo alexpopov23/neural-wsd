@@ -354,7 +354,7 @@ def format_data (wsd_method, input_data, src2id, src2id_lemmas, synset2id, synID
     pos_mapper = {"NOUN":"n", "VERB":"v", "ADJ":"a", "ADV":"r"}
     for i, sentence in enumerate(input_data):
         if len(sentence) > seq_width:
-            print "Max length is " + str(len(sentence))
+            # print "Max length is " + str(len(sentence))
             sentence = sentence[:seq_width]
         current_input = []
         current_input_lemmas = []
@@ -418,7 +418,18 @@ def format_data (wsd_method, input_data, src2id, src2id_lemmas, synset2id, synID
                 #     current_input.append(src2id[word[1]])
                 # else:
                 #     current_input.append(src2id["UNK"])
-                if len(src2id_lemmas) > 0:
+                if len(src2id_lemmas) == 0 and len(src2id) > 0:
+                    lemma = word[1].lower()
+                    if lemma in src2id:
+                        current_input.append(src2id[lemma])
+                    else:
+                        if current_flag == True:
+                            current_input.append(src2id["UNK"])
+                        elif skip_unknown == True:
+                            continue
+                        else:
+                            current_input.append(src2id["UNK"])
+                elif len(src2id_lemmas) > 0:
                     if use_pos == "True":
                         lemma = word[1].lower() + "-" + word[2]
                     else:
@@ -486,11 +497,12 @@ def format_data (wsd_method, input_data, src2id, src2id_lemmas, synset2id, synID
             ind_count += 1
 
         current_wtd += (seq_width - len(current_wtd)) * [False]
-        if word_embedding_input == "wordform" or word_embedding_input == "joint":
+        if word_embedding_input == "wordform" or word_embedding_input == "joint" \
+                or (word_embedding_input == "lemma" and len(src2id_lemmas) == 0):
             seq_lengths.append(len(current_input))
             if (len(current_input) < seq_width):
                 ind_count += seq_width - len(current_input)
-        if word_embedding_input == "lemma":
+        elif word_embedding_input == "lemma":
             seq_lengths.append(len(current_input_lemmas))
             if (len(current_input_lemmas) < seq_width):
                 ind_count += seq_width - len(current_input_lemmas)

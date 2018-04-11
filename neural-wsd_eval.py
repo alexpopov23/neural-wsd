@@ -380,7 +380,12 @@ def run_epoch(session, model, data, keep_prob, mode, multitask="False"):
             feed_dict.update({model.train_labels_regression: labels[1]})
         else:
             feed_dict.update({model.train_labels: labels})
-    if mode == "train":
+    if mode == "application":
+        if multitask == "True":
+            ops = [model.logits, model.output_emb]
+        else:
+            ops = [model.logits]
+    elif mode == "train":
         if multitask == "True":
             ops = [model.train_op, model.cost_c, model.cost_r, model.logits, model.output_emb]
         else:
@@ -391,8 +396,6 @@ def run_epoch(session, model, data, keep_prob, mode, multitask="False"):
                    model.output_emb, model.val_output_emb]
         else:
             ops = [model.train_op, model.cost, model.logits, model.val_logits]
-    elif mode == "application":
-        ops = [model.logits]
     fetches = session.run(ops, feed_dict=feed_dict)
 
     return fetches
@@ -774,35 +777,48 @@ if __name__ == "__main__":
     saver = tf.train.Saver()
     #session.run(tf.global_variables_initializer())
     if mode == "application":
-        saver.restore(session, os.path.join(args.save_path, "model/model.ckpt-95700"))
+        saver.restore(session, os.path.join(args.save_path, "model/model.ckpt-39300"))
         app_data = args.app_data
         data, lemma2synsets, lemma2id, synset2id, synID_mapping, id2synset, id2pos, known_lemmas, synset2freq = \
         data_ops.read_data_uniroma(app_data, sensekey2synset, lemma2synsets, lemma2id, synset2id, synID_mapping,
                                    id2synset, id2pos, known_lemmas, synset2freq, wsd_method=wsd_method, mode="test")
         match_cases = 0
         eval_cases = 0
-        match_cases_be = 0
-        eval_cases_be = 0
+        # match_cases_be = 0
+        # eval_cases_be = 0
+        if wsd_method == "multitask":
+            match_cases2 = 0
+            eval_cases2 = 0
         for step in range(len(data) / batch_size + 1):
             offset = (step * batch_size) % (len(data))
             inputs, input_lemmas, seq_lengths, labels, words_to_disambiguate, indices, lemmas_to_disambiguate, \
             synsets_gold, pos_filters = new_batch(offset, mode="application")
             input_data = [inputs, input_lemmas, seq_lengths, labels, words_to_disambiguate, indices]
-            fetches = run_epoch(session, model, input_data, 1, mode="application")
+            fetches = run_epoch(session, model, input_data, 1, mode="application", multitask="True")
             if wsd_method == "similarity":
                 acc, match_cases_count, eval_cases_count, match_be, eval_be = accuracy_cosine_distance(fetches[0], lemmas_to_disambiguate,
                                                                                     synsets_gold, pos_filters)
             elif wsd_method == "fullsoftmax":
                 acc, match_cases_count, eval_cases_count, match_be, eval_be = accuracy(fetches[0], lemmas_to_disambiguate, synsets_gold,
                                                                     pos_filters, synset2id)
+            elif wsd_method == "multitask":
+                acc, match_cases_count, eval_cases_count, match_be, eval_be = accuracy_cosine_distance(fetches[1], lemmas_to_disambiguate,
+                                                                                                       synsets_gold, pos_filters)
+                acc, match_cases_count2, eval_cases_count2, match_be, eval_be = accuracy(fetches[0], lemmas_to_disambiguate,
+                                                                    synsets_gold, pos_filters, synset2id)
+                match_cases2 += match_cases_count2
+                eval_cases2 += eval_cases_count2
             match_cases += match_cases_count
             eval_cases += eval_cases_count
-            match_cases_be += match_be
-            eval_cases_be += eval_be
+            # match_cases_be += match_be
+            # eval_cases_be += eval_be
         accuracy = (100.0 * match_cases) / eval_cases
         # accuracy_be = (100.0 * match_cases_be) / eval_cases_be
         print accuracy
         # print accuracy_be
+        if wsd_method == "multitask":
+            accuracy2 = (100.0 * match_cases2) / eval_cases2
+            print accuracy2
         exit()
     else:
         init = tf.initialize_all_variables()

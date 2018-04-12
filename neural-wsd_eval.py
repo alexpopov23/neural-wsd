@@ -777,7 +777,7 @@ if __name__ == "__main__":
     saver = tf.train.Saver()
     #session.run(tf.global_variables_initializer())
     if mode == "application":
-        saver.restore(session, os.path.join(args.save_path, "model/model.ckpt-39300"))
+        saver.restore(session, os.path.join(args.save_path, "model/model.ckpt-34400"))
         app_data = args.app_data
         data, lemma2synsets, lemma2id, synset2id, synID_mapping, id2synset, id2pos, known_lemmas, synset2freq = \
         data_ops.read_data_uniroma(app_data, sensekey2synset, lemma2synsets, lemma2id, synset2id, synID_mapping,
@@ -789,12 +789,16 @@ if __name__ == "__main__":
         if wsd_method == "multitask":
             match_cases2 = 0
             eval_cases2 = 0
+        if wsd_method == "multitask":
+            multitask = "True"
+        else:
+            multitask = "False"
         for step in range(len(data) / batch_size + 1):
             offset = (step * batch_size) % (len(data))
             inputs, input_lemmas, seq_lengths, labels, words_to_disambiguate, indices, lemmas_to_disambiguate, \
             synsets_gold, pos_filters = new_batch(offset, mode="application")
             input_data = [inputs, input_lemmas, seq_lengths, labels, words_to_disambiguate, indices]
-            fetches = run_epoch(session, model, input_data, 1, mode="application", multitask="True")
+            fetches = run_epoch(session, model, input_data, 1, mode="application", multitask=multitask)
             if wsd_method == "similarity":
                 acc, match_cases_count, eval_cases_count, match_be, eval_be = accuracy_cosine_distance(fetches[0], lemmas_to_disambiguate,
                                                                                     synsets_gold, pos_filters)

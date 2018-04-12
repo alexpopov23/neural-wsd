@@ -940,28 +940,26 @@ if __name__ == "__main__":
     saver = tf.train.Saver()
     #session.run(tf.global_variables_initializer())
     if mode == "application":
-        saver.restore(session, os.path.join(args.save_path, "model/checkpoint"))
-        #TODO: finish this module
-        # fetches = run_epoch(session, model, val_data, mode="application")
-        # #lemma2synsets =
-        # for i in range(len(fetches)):
-        #     print "Input sentence is: ",
-        #     for j in xrange(len(val_data[0][i])):
-        #         print val_data[0][i][j][0] + " ",
-        #     print "\n"
-        #     #_predictions = session.run([predictions], feed_dict=feed_dict)[0]
-        #     # _predictions = _predictions.eval()
-        #     # print "Output sequence is: ",
-        #     # for k in xrange(fetches[i]):
-        #     #     # Print the N best candidates for each word
-        #     #     # best_five = np.argsort(_predictions[k])[-5:]
-        #     #     # for candidate in best_five:
-        #     #     #    print id2target[candidate] + "|",
-        #     #     # print "\n"
-        #     #     # Print just the top scoring candidate for each word
-        #     #     #print id2target[np.argmax(_predictions[k])] + " ",
-        #     # print "\n"
-        # exit()
+        saver.restore(session, os.path.join(args.save_path, "model/model.ckpt-34400"))
+        app_data = args.app_data
+        data, lemma2synsets, lemma2id, synset2id, synID_mapping, id2synset, id2pos, known_lemmas, synset2freq = \
+        data_ops.read_data_uniroma(app_data, sensekey2synset, lemma2synsets, lemma2id, synset2id, synID_mapping,
+                                   id2synset, id2pos, known_lemmas, synset2freq, wsd_method=wsd_method, mode="test")
+        match_cases = 0
+        eval_cases = 0
+        for step in range(len(data) / batch_size + 1):
+            offset = (step * batch_size) % (len(data))
+            inputs, input_lemmas, seq_lengths, labels, words_to_disambiguate, indices, lemmas_to_disambiguate, \
+            synsets_gold, pos_filters = new_batch(offset, mode="application")
+            input_data = [inputs, input_lemmas, seq_lengths, labels, words_to_disambiguate, indices]
+            fetches = run_epoch(session, model, input_data, 1, mode="application", multitask=multitask)
+            acc, match_cases_count, eval_cases_count, match_be, eval_be = accuracy(fetches[0], lemmas_to_disambiguate, synsets_gold,
+                                                                    pos_filters, synset2id)
+            match_cases += match_cases_count
+            eval_cases += eval_cases_count
+        accuracy = (100.0 * match_cases) / eval_cases
+        print accuracy
+        exit()
     else:
         init = tf.initialize_all_variables()
         if wsd_method == "similarity":

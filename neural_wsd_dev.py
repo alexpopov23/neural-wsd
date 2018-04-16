@@ -879,7 +879,7 @@ if __name__ == "__main__":
         if multitask == "True" and val_accuracy_r > best_accuracy_r:
             best_accurary_r = val_accuracy_r
 
-        if (args.save_path != "None" and step == 25000 or step > 25000 and val_accuracy == best_accuracy):
+        if (args.save_path != "None" and step == 10000 or step > 10000 and val_accuracy == best_accuracy):
             for file in os.listdir(model_path):
                 os.remove(os.path.join(model_path, file))
             saver.save(session, os.path.join(args.save_path, "model/model.ckpt"), global_step=step)
@@ -894,7 +894,7 @@ if __name__ == "__main__":
                     pickle.dump(id2synset, output, pickle.HIGHEST_PROTOCOL)
 
         if multitask == "True":
-            if (step > 25000 and val_accuracy_r == best_accuracy_r):
+            if (step > 10000 and val_accuracy_r == best_accuracy_r):
                 for file in os.listdir(model_path_r):
                     os.remove(os.path.join(model_path_r, file))
                 saver.save(session, os.path.join(args.save_path, "model_r/model.ckpt"), global_step=step)

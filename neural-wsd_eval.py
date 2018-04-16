@@ -647,6 +647,7 @@ if __name__ == "__main__":
         eval_cases = 0
         matching_cases_be = 0
         eval_cases_be = 0
+        selected_synsets = []
         for i, logit in enumerate(logits):
             max = -10000
             max_id = -1
@@ -655,13 +656,22 @@ if __name__ == "__main__":
             gold_pos = pos_filters[i]
             lemma = lemmas[i]
             if lemma not in known_lemmas:
-                if len(lemma2synsets[lemma]) == 1:
-                    max_id = lemma2synsets[lemma][0]
-                elif len(lemma2synsets[lemma]) > 1:
-                    if synset2freq[lemma] > 0:
-                        max_id = synset2freq[lemma]
+                for synset in lemma2synsets[lemma]:
+                    # make sure we only evaluate on synsets of the correct POS category
+                    if synset.split("-")[1] != gold_pos:
+                        continue
                     else:
-                        max_id = random.choice(lemma2synsets[lemma])
+                        max_id = synset
+                        break
+                #max_id = lemma2synsets[lemma][0]
+                # if len(lemma2synsets[lemma]) == 1:
+                #     max_id = lemma2synsets[lemma][0]
+                # elif len(lemma2synsets[lemma]) > 1:
+                #     if synset2freq[lemma] > 0:
+                #         max_id = synset2freq[lemma]
+                #     else:
+                #         max_id = random.choice(lemma2synsets[lemma])
+                selected_synsets.append("NA")
             else:
                 for synset in lemma2synsets[lemma]:
                     id = synset2id[synset]
@@ -673,6 +683,7 @@ if __name__ == "__main__":
                     if logit[id] > max:
                         max = logit[id]
                         max_id = synset
+                selected_synsets.append(max_id)
             #make sure there is at least one synset with a positive score
             # if max < 0:
             #     pruned_logit[max_id] = max * -1
@@ -777,7 +788,7 @@ if __name__ == "__main__":
     saver = tf.train.Saver()
     #session.run(tf.global_variables_initializer())
     if mode == "application":
-        saver.restore(session, os.path.join(args.save_path, "model/model.ckpt-34400"))
+        saver.restore(session, os.path.join(args.save_path, "model/model.ckpt-39300"))
         app_data = args.app_data
         data, lemma2synsets, lemma2id, synset2id, synID_mapping, id2synset, id2pos, known_lemmas, synset2freq = \
         data_ops.read_data_uniroma(app_data, sensekey2synset, lemma2synsets, lemma2id, synset2id, synID_mapping,

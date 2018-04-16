@@ -648,7 +648,14 @@ if __name__ == "__main__":
             gold_pos = pos_filters[i]
             lemma = lemmas[i]
             if lemma not in known_lemmas:
-                max_id = lemma2synsets[lemma][0]
+                for synset in lemma2synsets[lemma]:
+                    # make sure we only evaluate on synsets of the correct POS category
+                    if synset.split("-")[1] != gold_pos:
+                        continue
+                    else:
+                        max_id = synset
+                        break
+                #max_id = lemma2synsets[lemma][0]
                 # if len(lemma2synsets[lemma]) == 1:
                 #     max_id = lemma2synsets[lemma][0]
                 # elif len(lemma2synsets[lemma]) > 1:
@@ -803,6 +810,7 @@ if __name__ == "__main__":
     results = open(os.path.join(args.save_path, 'results.txt'), "a", 0)
     results.write(str(args) + '\n\n')
     model_path = os.path.join(args.save_path, "model")
+    model_path_r = os.path.join(args.save_path, "model_r")
     for step in range(training_iters):
         offset = (step * batch_size) % (len(data) - batch_size)
         inputs, input_lemmas, seq_lengths, labels, words_to_disambiguate, indices, lemmas_to_disambiguate, \
@@ -884,6 +892,12 @@ if __name__ == "__main__":
                     pickle.dump(synset2id, output, pickle.HIGHEST_PROTOCOL)
                 with open(os.path.join(args.save_path, 'id2synset.pkl'), 'wb') as output:
                     pickle.dump(id2synset, output, pickle.HIGHEST_PROTOCOL)
+
+        if multitask == "True":
+            if (step > 25000 and val_accuracy_r == best_accuracy_r):
+                for file in os.listdir(model_path_r):
+                    os.remove(os.path.join(model_path_r, file))
+                saver.save(session, os.path.join(args.save_path, "model_r/model.ckpt"), global_step=step)
 
     results.write('\n\n\n' + 'Best result is: ' + str(best_accuracy))
     if multitask == "True":

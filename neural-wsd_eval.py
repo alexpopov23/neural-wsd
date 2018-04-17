@@ -317,6 +317,7 @@ class ModelMultiTaskLearning:
                 rnn_outputs = tf.reshape(rnn_outputs, [-1, 2*n_hidden])
                 target_outputs = tf.gather(rnn_outputs, indices)
                 output_c = tf.matmul(target_outputs, weights_c) + biases_c
+                softmax_c = tf.nn.softmax(output_c)
                 losses_c = tf.nn.softmax_cross_entropy_with_logits(logits=output_c, labels=labels_c)
                 cost_c = tf.reduce_mean(losses_c)
                 output_r = tf.matmul(target_outputs, weights_r) + biases_r
@@ -324,7 +325,7 @@ class ModelMultiTaskLearning:
                 cost_r = tf.reduce_mean(losses_r)
                 cost = cost_c + cost_r
 
-            return cost, cost_c, cost_r, output_c, output_r
+            return cost, cost_c, cost_r, output_c, output_r, softmax_c
 
 
         # if lemma embeddings are passed, then concatenate them with the word embeddings
@@ -334,7 +335,7 @@ class ModelMultiTaskLearning:
             embedded_inputs = embed_inputs(self.train_inputs_lemmas)
         elif input_mode == "wordform":
             embedded_inputs = embed_inputs(self.train_inputs)
-        self.cost, self.cost_c, self.cost_r, self.logits, self.output_emb = \
+        self.cost, self.cost_c, self.cost_r, self.logits, self.output_emb, self.softmax_c = \
             biRNN_WSD(embedded_inputs, self.train_seq_lengths, self.train_indices,
                       self.weights_classification, self.biases_classification,
                       self.weights_regression, self.biases_regression,
@@ -349,7 +350,7 @@ class ModelMultiTaskLearning:
         elif input_mode == "wordform":
             embedded_inputs = embed_inputs(self.val_inputs)
         tf.get_variable_scope().reuse_variables()
-        _, _, _, self.val_logits, self.val_output_emb = \
+        _, _, _, self.val_logits, self.val_output_emb, _ = \
             biRNN_WSD(embedded_inputs, self.val_seq_lengths, self.val_indices,
                       self.weights_classification, self.biases_classification,
                       self.weights_regression, self.biases_regression,
@@ -382,7 +383,7 @@ def run_epoch(session, model, data, keep_prob, mode, multitask="False"):
             feed_dict.update({model.train_labels: labels})
     if mode == "application":
         if multitask == "True":
-            ops = [model.logits, model.output_emb]
+            ops = [model.logits, model.output_emb, model.softmax_c]
         else:
             ops = [model.logits]
     elif mode == "train":
@@ -648,6 +649,8 @@ if __name__ == "__main__":
         matching_cases_be = 0
         eval_cases_be = 0
         selected_synsets = []
+        selected_synsets_wn1st = []
+        selected_scores = []
         for i, logit in enumerate(logits):
             max = -10000
             max_id = -1
@@ -672,6 +675,7 @@ if __name__ == "__main__":
                 #     else:
                 #         max_id = random.choice(lemma2synsets[lemma])
                 selected_synsets.append("NA")
+                selected_scores.append("NA")
             else:
                 for synset in lemma2synsets[lemma]:
                     id = synset2id[synset]
@@ -684,6 +688,14 @@ if __name__ == "__main__":
                         max = logit[id]
                         max_id = synset
                 selected_synsets.append(max_id)
+                selected_scores.append(max)
+            for synset in lemma2synsets[lemma]:
+                # make sure we only evaluate on synsets of the correct POS category
+                if synset.split("-")[1] != gold_pos:
+                    continue
+                else:
+                    selected_synsets_wn1st.append(synset)
+                    break
             #make sure there is at least one synset with a positive score
             # if max < 0:
             #     pruned_logit[max_id] = max * -1
@@ -695,7 +707,8 @@ if __name__ == "__main__":
             if lemma == "have":
                 eval_cases_be += 1
 
-        return (100.0 * matching_cases) / eval_cases, matching_cases, eval_cases, matching_cases_be, eval_cases_be
+        return (100.0 * matching_cases) / eval_cases, matching_cases, eval_cases, matching_cases_be, eval_cases_be, \
+               selected_synsets, selected_scores, selected_synsets_wn1st
 
     def accuracy_cosine_distance (logits, lemmas, synsets_gold, pos_filters):
 
@@ -703,6 +716,8 @@ if __name__ == "__main__":
         matching_cases_be = 0
         eval_cases = 0
         eval_cases_be = 0
+        selected_synsets = []
+        selected_sims = []
         for i, logit in enumerate(logits):
             lemma = lemmas[i]
             poss_synsets = lemma2synsets[lemma]
@@ -722,6 +737,8 @@ if __name__ == "__main__":
                 if cos_sim > max_similarity:
                     max_similarity = cos_sim
                     best_fit = synset
+            selected_synsets.append(best_fit)
+            selected_sims.append(max_similarity)
             if best_fit in synsets_gold[i]:
                 matching_cases += 1
                 if lemma == "have":
@@ -731,7 +748,7 @@ if __name__ == "__main__":
                 eval_cases_be += 1
             accuracy = (100.0 * matching_cases) / eval_cases
 
-        return accuracy, matching_cases, eval_cases, matching_cases_be, eval_cases_be
+        return accuracy, matching_cases, eval_cases, matching_cases_be, eval_cases_be, selected_synsets, selected_sims
 
     # Create a new batch from the training data (data, labels and sequence lengths)
     def new_batch (offset, mode="training"):
@@ -804,6 +821,8 @@ if __name__ == "__main__":
             multitask = "True"
         else:
             multitask = "False"
+        analysis = open(os.path.join(args.save_path, 'analysis.txt'), "a", 0)
+        analysis.write("gold\tsimilarity\tsimilarity_score\tfullsoftmax\tfullsoftmax_score\twn1st\tlabel\n")
         for step in range(len(data) / batch_size + 1):
             offset = (step * batch_size) % (len(data))
             inputs, input_lemmas, seq_lengths, labels, words_to_disambiguate, indices, lemmas_to_disambiguate, \
@@ -811,22 +830,38 @@ if __name__ == "__main__":
             input_data = [inputs, input_lemmas, seq_lengths, labels, words_to_disambiguate, indices]
             fetches = run_epoch(session, model, input_data, 1, mode="application", multitask=multitask)
             if wsd_method == "similarity":
-                acc, match_cases_count, eval_cases_count, match_be, eval_be = accuracy_cosine_distance(fetches[0], lemmas_to_disambiguate,
+                acc, match_cases_count, eval_cases_count, match_be, eval_be, _, _ = accuracy_cosine_distance(fetches[0], lemmas_to_disambiguate,
                                                                                     synsets_gold, pos_filters)
             elif wsd_method == "fullsoftmax":
-                acc, match_cases_count, eval_cases_count, match_be, eval_be = accuracy(fetches[0], lemmas_to_disambiguate, synsets_gold,
+                acc, match_cases_count, eval_cases_count, match_be, eval_be, _, _, _ = accuracy(fetches[0], lemmas_to_disambiguate, synsets_gold,
                                                                     pos_filters, synset2id)
             elif wsd_method == "multitask":
-                acc, match_cases_count, eval_cases_count, match_be, eval_be = accuracy_cosine_distance(fetches[1], lemmas_to_disambiguate,
-                                                                                                       synsets_gold, pos_filters)
-                acc, match_cases_count2, eval_cases_count2, match_be, eval_be = accuracy(fetches[0], lemmas_to_disambiguate,
-                                                                    synsets_gold, pos_filters, synset2id)
+                acc, match_cases_count, eval_cases_count, match_be, eval_be, selection1, selection1_scores = \
+                    accuracy_cosine_distance(fetches[1], lemmas_to_disambiguate, synsets_gold, pos_filters)
+                acc, match_cases_count2, eval_cases_count2, match_be, eval_be, selection2, selection2_scores, selection3 = \
+                    accuracy(fetches[2], lemmas_to_disambiguate, synsets_gold, pos_filters, synset2id)
                 match_cases2 += match_cases_count2
                 eval_cases2 += eval_cases_count2
             match_cases += match_cases_count
             eval_cases += eval_cases_count
             # match_cases_be += match_be
             # eval_cases_be += eval_be
+            if selection1 != None:
+                for i, syn in enumerate(synsets_gold):
+                    label = ""
+                    if selection1[i] == selection2[i] == selection3[i]:
+                        label = "A eq B eq C"
+                    elif selection1[i] == selection2[i]:
+                        label = "A eq B neq C"
+                    elif selection1[i] == selection3[i]:
+                        label = "A eq C neq B"
+                    elif selection2[i] == selection3[i]:
+                        label = "B eq C neq A"
+                    else:
+                        label = "A neq B neq C"
+                    line = "|".join(syn) + "\t" + selection1[i] + "\t" + str(selection1_scores[i]) + "\t" + selection2[i]\
+                           + "\t" + str(selection2_scores[i]) + "\t" + selection3[i] + "\t" + label + "\n"
+                    analysis.write(line)
         accuracy = (100.0 * match_cases) / eval_cases
         # accuracy_be = (100.0 * match_cases_be) / eval_cases_be
         print accuracy
@@ -834,6 +869,7 @@ if __name__ == "__main__":
         if wsd_method == "multitask":
             accuracy2 = (100.0 * match_cases2) / eval_cases2
             print accuracy2
+        analysis.close()
         exit()
     else:
         init = tf.initialize_all_variables()

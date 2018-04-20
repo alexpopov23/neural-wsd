@@ -3,6 +3,7 @@ import os
 import random
 import pickle
 import re
+import math
 
 import numpy as np
 import _elementtree as ET
@@ -295,7 +296,7 @@ def get_sensekey2synset ():
 
 def read_data_uniroma (path, sensekey2synset, lemma2synsets={}, lemma2id={}, synset2id={}, synID_mapping={},
                        id2synset={}, id2pos={}, known_lemmas=set(), synset2freq = {}, wsd_method="full_dictionary",
-                       mode="train", f_lex=None, hypernym_classifier="False", syn2hyp=None, hyp2id={}):
+                       mode="train", f_lex=None, hypernym_classifier="False", syn2hyp=None, hyp2id={}, lemma2freq={}):
 
     data = []
     if mode == "train":
@@ -338,6 +339,7 @@ def read_data_uniroma (path, sensekey2synset, lemma2synsets={}, lemma2id={}, syn
     tree = ET.parse(os.path.join(path, path_data))
     doc = tree.getroot()
     corpora = doc.findall("corpus")
+    tokens_num = 0
     for corpus in corpora:
         texts = corpus.findall("text")
         for text in texts:
@@ -346,10 +348,15 @@ def read_data_uniroma (path, sensekey2synset, lemma2synsets={}, lemma2id={}, syn
                 current_sentence = []
                 elements = sentence.findall(".//")
                 for element in elements:
+                    tokens_num += 1
                     wordform = element.text
                     lemma = element.get("lemma")
                     if mode == "train":
                         known_lemmas.add(lemma)
+                        if lemma not in lemma2freq:
+                            lemma2freq[lemma] = 1
+                        else:
+                            lemma2freq[lemma] += 1
                     pos = element.get("pos")
                     if element.tag == "instance":
                         synsets = [sensekey2synset[key] for key in codes2keys[element.get("id")]]
@@ -362,6 +369,8 @@ def read_data_uniroma (path, sensekey2synset, lemma2synsets={}, lemma2id={}, syn
                     current_sentence.append([wordform, lemma, pos, synsets])
                 data.append(current_sentence)
     if mode == "train":
+        for lemma in lemma2freq:
+            lemma2freq[lemma] = int(math.log(lemma2freq[lemma] * 1.0 / tokens_num))
         lemma2synsets = collections.OrderedDict(sorted(lemma2synsets.items()))
         index_l = 0
         index_s = 0
@@ -440,13 +449,13 @@ def read_data_uniroma (path, sensekey2synset, lemma2synsets={}, lemma2id={}, syn
                     word.append(hyp_ids)
             else:
                 word.append([-1])
-    return data, lemma2synsets, lemma2id, synset2id, synID_mapping, id2synset, id2pos, known_lemmas, synset2freq
+    return data, lemma2synsets, lemma2id, synset2id, synID_mapping, id2synset, id2pos, known_lemmas, synset2freq, lemma2freq
 
 
 def format_data (wsd_method, input_data, src2id, src2id_lemmas, synset2id, synID_mapping, seq_width, word_embedding_case,
                  word_embedding_input, sense_embeddings=None, dropword=0.0, lemma_embedding_dim=None, pos_types=None,
                  mode="training", skip_unknown=False, use_pos=False, pos_classifier="False", hypernym_classifier="False",
-                 hyp2id=None):
+                 hyp2id=None, freq_classifier="False", lemma2freq=None, freq_types=None):
 
     inputs = []
     inputs_lemmas = []
@@ -467,6 +476,7 @@ def format_data (wsd_method, input_data, src2id, src2id_lemmas, synset2id, synID
     pos_filters = []
     pos_filers_hyp = []
     pos_labels = []
+    freq_labels = []
     pos_map_penn = {"!" : ".", "#" : ".", "$" : ".", "''" : ".", "(" : ".", ")" : ".", "," : ".", "-LRB-" : ".", "-RRB-" : ".",
                "." : ".", ":" : ".", "?" : ".", "CC" : "CONJ", "CD" : "NUM", "CD|RB" : "X", "DT" : "DET", "EX" : "DET",
                "FW" : "X", "IN" : "ADP", "IN|RP" : "ADP", "JJ" : "ADJ", "JJR" : "ADJ", "JJRJR" : "ADJ", "JJS" : "ADJ",
@@ -479,6 +489,7 @@ def format_data (wsd_method, input_data, src2id, src2id_lemmas, synset2id, synID
                "WP" : "PRON", "WP$" : "PRON", "WRB" : "ADV", "``" : "."}
     pos_mapper = {"NOUN":"n", "VERB":"v", "ADJ":"a", "ADV":"r"}
     zero_pos_label = np.zeros(len(pos_types), dtype=int)
+    zero_freq_label = np.zeros(len(freq_types), dtype=int)
     for i, sentence in enumerate(input_data):
         if len(sentence) > seq_width:
             sentence = sentence[:seq_width]
@@ -492,6 +503,7 @@ def format_data (wsd_method, input_data, src2id, src2id_lemmas, synset2id, synID
         current_gold_synsets = []
         current_pos_filters = []
         current_pos_labels = []
+        current_freq_labels = []
         for j, word in enumerate(sentence):
             rand_num = random.uniform(0, 1)
             if rand_num < dropword:
@@ -626,6 +638,13 @@ def format_data (wsd_method, input_data, src2id, src2id_lemmas, synset2id, synID
                 current_pos_label[pos_types[word[2]]] = 1
                 # current_pos_label[]
                 current_pos_labels.append(current_pos_label)
+            if freq_classifier == "True":
+                current_freq_label = copy(zero_freq_label)
+                if word[1] in lemma2freq:
+                    current_freq_label[freq_types[lemma2freq[word[1]]]] = 1
+                else:
+                    current_freq_label[freq_types[-14]] = 1
+                current_freq_labels.append(current_freq_label)
             # else:
             #     current_label = np.zeros(1, dtype=int)
             current_wtd.append(current_flag)
@@ -652,9 +671,12 @@ def format_data (wsd_method, input_data, src2id, src2id_lemmas, synset2id, synID
             inputs.append(current_input)
         if len(src2id_lemmas) > 0:
             inputs_lemmas.append(current_input_lemmas)
-        if pos_classifier:
+        if pos_classifier == "True":
             current_pos_labels += (seq_width - len(current_pos_labels)) * [zero_pos_label]
             pos_labels.extend(current_pos_labels)
+        if freq_classifier == "True":
+            current_freq_labels += (seq_width - len(current_freq_labels)) * [zero_freq_label]
+            freq_labels.extend(current_freq_labels)
         # extend results in a 2-d tensor where sentences are concatenated; append results in a 3-d tensor
         labels.extend(current_labels)
         if hypernym_classifier == "True":
@@ -673,12 +695,14 @@ def format_data (wsd_method, input_data, src2id, src2id_lemmas, synset2id, synID
         labels = (labels_c, labels)
     if pos_classifier == "True":
         pos_labels = np.asarray(pos_labels)
+    if freq_classifier == "True":
+        freq_labels = np.asarray(freq_labels)
     indices = np.asarray(indices)
     inputs = np.asarray(inputs)
     inputs_lemmas = np.asarray(inputs_lemmas)
 
     return inputs, inputs_lemmas, seq_lengths, labels, words_to_disambiguate, indices, lemmas_to_disambiguate, \
-           synsets_gold, pos_filters, pos_labels, labels_hyp, indices_hyp, lemmas_hyp_to_disambiguate, pos_filers_hyp
+           synsets_gold, pos_filters, pos_labels, labels_hyp, indices_hyp, lemmas_hyp_to_disambiguate, pos_filers_hyp, freq_labels
 
 
 def softmax(w, t = 1.0):

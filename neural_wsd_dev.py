@@ -31,9 +31,9 @@ class ModelSingleSoftmax:
     def __init__(self, synset2id, word_embedding_dim, vocab_size,
                  batch_size, seq_width, n_hidden, n_hidden_layers,
                  val_inputs, val_input_lemmas, val_seq_lengths, val_flags, val_indices, val_labels,
-                 lemma_embedding_dim, vocab_size_lemmas, wsd_classifier="True", pos_classifier="False",
+                 lemma_embedding_dim, vocab_size_lemmas, wsd_classifier="True", pos_classifier="False", freq_classifier="False",
                  pos_classes=0, val_pos_labels=None, hypernym_classifier="False", hyp2id=None, val_hyp_labels=None,
-                 val_hyp_indices=None):
+                 val_hyp_indices=None, val_freq_labels=None, freq2id=None):
         self.emb_placeholder = tf.placeholder(tf.float32, shape=[vocab_size, word_embedding_dim])
         self.embeddings = tf.Variable(self.emb_placeholder)
         self.set_embeddings = tf.assign(self.embeddings, self.emb_placeholder, validate_shape=False)
@@ -78,7 +78,19 @@ class ModelSingleSoftmax:
             self.weights_hyp = None
             self.biases_hyp = None
             self.labels_hyp = None
+            self.indices_hyp = None
             self.val_labels_hyp = None
+            self.val_indices_hyp = None
+        if freq_classifier == "True":
+            self.weights_freq = tf.get_variable(name="softmax_freq-w", shape=[2*n_hidden, len(freq2id)], dtype=tf.float32)
+            self.biases_freq = tf.get_variable(name="softmax_freq-b", shape=[len(freq2id)], dtype=tf.float32)
+            self.labels_freq = tf.placeholder(name="freq_labels", shape=[None, len(freq2id)], dtype=tf.int32)
+            self.val_labels_freq = tf.constant(val_freq_labels, tf.int32)
+        else:
+            self.weights_freq = None
+            self.biases_freq = None
+            self.labels_freq = None
+            self.val_labels_freq = None
         self.val_inputs = tf.constant(val_inputs, tf.int32)
         if vocab_size_lemmas > 0:
             self.val_inputs_lemmas = tf.constant(val_input_lemmas, tf.int32)
@@ -102,7 +114,8 @@ class ModelSingleSoftmax:
 
         def biRNN_WSD (embedded_inputs, seq_lengths, indices, weights, biases, labels, is_training, keep_prob,
                        pos_classifier="False", wsd_classifier="True", weights_pos=None, biases_pos=None, labels_pos=None,
-                       hypernym_classifier="False", weights_hyp=None, biases_hyp=None, indices_hyp=None, labels_hyp=None):
+                       hypernym_classifier="False", weights_hyp=None, biases_hyp=None, indices_hyp=None, labels_hyp=None,
+                       weights_freq=None, biases_freq=None, labels_freq=None):
 
             with tf.variable_scope(tf.get_variable_scope()) as scope:
 
@@ -155,7 +168,12 @@ class ModelSingleSoftmax:
                     logits_hyp = tf.matmul(target_hyp_outputs, weights_hyp) + biases_hyp
                     losses_hyp = tf.nn.softmax_cross_entropy_with_logits(logits=logits_hyp, labels=labels_hyp)
                     cost_hyp = tf.reduce_mean(losses_hyp)
-                cost = cost_wsd + cost_pos + cost_hyp
+                cost_freq = 0.0
+                if freq_classifier == "True":
+                    logits_freq = tf.matmul(rnn_outputs, weights_freq) + biases_freq
+                    losses_freq = tf.nn.softmax_cross_entropy_with_logits(logits=logits_freq, labels=labels_freq)
+                    cost_freq = tf.reduce_mean(losses_freq)
+                cost = cost_wsd + cost_pos + cost_hyp + cost_freq
                 # if pos_classifier == "True" and wsd_classifier == "True":
                 #     cost = cost_pos + cost_wsd
                 # elif wsd_classifier == "True":
@@ -163,19 +181,19 @@ class ModelSingleSoftmax:
                 # elif pos_classifier == "True":
                 #     cost = cost_pos
 
-            return cost, logits, losses, logits_pos, logits_hyp
+            return cost, logits, losses, logits_pos, logits_hyp, logits_freq
 
         # if lemma embeddings are passed, then concatenate them with the word embeddings
         if vocab_size_lemmas > 0:
             embedded_inputs = embed_inputs(self.train_inputs, self.train_inputs_lemmas)
         else:
             embedded_inputs = embed_inputs(self.train_inputs)
-        self.cost, self.logits, self.losses, self.logits_pos, self.logits_hyp = \
+        self.cost, self.logits, self.losses, self.logits_pos, self.logits_hyp, self.logits_freq = \
                 biRNN_WSD(embedded_inputs, self.train_seq_lengths, self.train_indices,
                         self.weights, self.biases, self.train_labels, True, self.keep_prob,
                         pos_classifier, wsd_classifier, self.weights_pos, self.biases_pos,
                         self.labels_pos, hypernym_classifier, self.weights_hyp, self.biases_hyp,
-                        self.indices_hyp, self.labels_hyp)
+                        self.indices_hyp, self.labels_hyp, self.weights_freq, self.biases_freq, self.labels_freq)
         self.train_op = tf.train.GradientDescentOptimizer(learning_rate).minimize(self.cost)
         #self.train_op = tf.train.AdadeltaOptimizer(learning_rate).minimize(self.cost)
         if vocab_size_lemmas > 0:
@@ -183,12 +201,12 @@ class ModelSingleSoftmax:
         else:
             embedded_inputs = embed_inputs(self.val_inputs)
         tf.get_variable_scope().reuse_variables()
-        _, self.val_logits, _, self.val_logits_pos, self.val_logits_hyp = \
+        _, self.val_logits, _, self.val_logits_pos, self.val_logits_hyp, self.val_logits_freq = \
             biRNN_WSD(embedded_inputs, self.val_seq_lengths, self.val_indices,
                       self.weights, self.biases, self.val_labels, False, 1.0,
                       pos_classifier, wsd_classifier, self.weights_pos, self.biases_pos, self.val_labels_pos,
-                      hypernym_classifier, self.weights_hyp, self.biases_hyp, self.val_hyp_indices,
-                      self.val_labels_hyp)
+                      hypernym_classifier, self.weights_hyp, self.biases_hyp, self.val_indices_hyp,
+                      self.val_labels_hyp, self.weights_freq, self.biases_freq, self.val_labels_freq)
 
 class ModelVectorSimilarity:
 
@@ -313,7 +331,8 @@ class ModelMultiTaskLearning:
     #TODO make model work with batches (no reason not to use them before the WSD part, I think)
     def __init__(self, input_mode, synID_mapping, output_embedding_dim, lemma_embedding_dim, vocab_size_lemmas,
                  batch_size, seq_width, n_hidden, val_inputs, val_seq_lengths, val_flags, val_indices,
-                 val_labels_classification, val_labels_regression, word_embedding_dim, vocab_size_wordforms):
+                 val_labels_classification, val_labels_regression, word_embedding_dim, vocab_size_wordforms,
+                 freq_classifier="False", val_freq_labels=None, freq2id=None):
 
         if vocab_size_lemmas > 0:
             self.emb_placeholder_lemmas = tf.placeholder(tf.float32, shape=[vocab_size_lemmas, lemma_embedding_dim],
@@ -354,6 +373,16 @@ class ModelMultiTaskLearning:
         self.val_labels_regression = tf.Variable(self.place_r, name="val_labels_regression")
         self.val_indices = tf.constant(val_indices, tf.int32, name="val_indices")
         self.keep_prob = tf.placeholder(tf.float32)
+        if freq_classifier == "True":
+            self.weights_freq = tf.get_variable(name="softmax_freq-w", shape=[2*n_hidden, len(freq2id)], dtype=tf.float32)
+            self.biases_freq = tf.get_variable(name="softmax_freq-b", shape=[len(freq2id)], dtype=tf.float32)
+            self.labels_freq = tf.placeholder(name="freq_labels", shape=[None, len(freq2id)], dtype=tf.int32)
+            self.val_labels_freq = tf.constant(val_freq_labels, tf.int32)
+        else:
+            self.weights_freq = None
+            self.biases_freq = None
+            self.labels_freq = None
+            self.val_labels_freq = None
 
         def embed_inputs (inputs, inputs_optional=None):
 
@@ -372,7 +401,7 @@ class ModelMultiTaskLearning:
             return embedded_inputs
 
         def biRNN_WSD (embedded_inputs, seq_lengths, indices, weights_c, biases_c, weights_r, biases_r,
-                       labels_c, labels_r, is_training, keep_prob=1.0):
+                       labels_c, labels_r, is_training, keep_prob, weights_freq, biases_freq, labels_freq):
 
             with tf.variable_scope(tf.get_variable_scope()) as scope:
 
@@ -401,9 +430,15 @@ class ModelMultiTaskLearning:
                 output_r = tf.matmul(target_outputs, weights_r) + biases_r
                 losses_r = (labels_r - output_r) ** 2
                 cost_r = tf.reduce_mean(losses_r)
-                cost = cost_c + cost_r
+                cost_freq = 0.0
+                logits_freq = []
+                if freq_classifier == "True":
+                    logits_freq = tf.matmul(rnn_outputs, weights_freq) + biases_freq
+                    losses_freq = tf.nn.softmax_cross_entropy_with_logits(logits=logits_freq, labels=labels_freq)
+                    cost_freq = tf.reduce_mean(losses_freq)
+                cost = cost_c + cost_r + cost_freq
 
-            return cost, cost_c, cost_r, output_c, output_r
+            return cost, cost_c, cost_r, output_c, output_r, logits_freq
 
 
         # if lemma embeddings are passed, then concatenate them with the word embeddings
@@ -413,12 +448,12 @@ class ModelMultiTaskLearning:
             embedded_inputs = embed_inputs(self.train_inputs_lemmas)
         elif input_mode == "wordform":
             embedded_inputs = embed_inputs(self.train_inputs)
-        self.cost, self.cost_c, self.cost_r, self.logits, self.output_emb = \
+        self.cost, self.cost_c, self.cost_r, self.logits, self.output_emb, self.logits_freq = \
             biRNN_WSD(embedded_inputs, self.train_seq_lengths, self.train_indices,
                       self.weights_classification, self.biases_classification,
                       self.weights_regression, self.biases_regression,
                       self.train_labels_classification, self.train_labels_regression,
-                      True, self.keep_prob)
+                      True, self.keep_prob, self.weights_freq, self.biases_freq, self.labels_freq)
         self.train_op = tf.train.GradientDescentOptimizer(learning_rate).minimize(self.cost)
         # self.train_op = tf.train.AdamOptimizer(learning_rate).minimize(self.cost)
         if input_mode == "joint":
@@ -428,12 +463,12 @@ class ModelMultiTaskLearning:
         elif input_mode == "wordform":
             embedded_inputs = embed_inputs(self.val_inputs)
         tf.get_variable_scope().reuse_variables()
-        _, _, _, self.val_logits, self.val_output_emb = \
+        _, _, _, self.val_logits, self.val_output_emb, self.val_logits_freq = \
             biRNN_WSD(embedded_inputs, self.val_seq_lengths, self.val_indices,
                       self.weights_classification, self.biases_classification,
                       self.weights_regression, self.biases_regression,
                       self.val_labels_classification, self.val_labels_regression,
-                      False)
+                      False, self.keep_prob, self.weights_freq, self.biases_freq, self.val_labels_freq)
 
 def run_epoch(session, model, data, keep_prob, mode, multitask="False"):
 
@@ -448,6 +483,7 @@ def run_epoch(session, model, data, keep_prob, mode, multitask="False"):
         labels_pos = data[6]
         labels_hyp = data[7]
         indices_hyp = data[8]
+        labels_freq = data[9]
         feed_dict = { model.train_seq_lengths : seq_lengths,
                       model.keep_prob : keep_prob}
         if wsd_classifier == "True":
@@ -461,6 +497,8 @@ def run_epoch(session, model, data, keep_prob, mode, multitask="False"):
             feed_dict.update({model.labels_pos : labels_pos})
         if hypernym_classifier == "True":
             feed_dict.update({model.labels_hyp : labels_hyp, model.indices_hyp : indices_hyp})
+        if freq_classifier == "True":
+            feed_dict.update({model.labels_freq : labels_freq})
         if len(inputs) > 0:
             feed_dict.update({model.train_inputs: inputs})
         if len(input_lemmas) > 0:
@@ -473,7 +511,7 @@ def run_epoch(session, model, data, keep_prob, mode, multitask="False"):
     elif mode == "val":
         if multitask == "True":
             ops = [model.train_op, model.cost_c, model.cost_r, model.logits, model.val_logits,
-                   model.output_emb, model.val_output_emb]
+                   model.output_emb, model.val_output_emb, model.logits_freq, model.val_logits_freq]
         else:
             ops = [model.train_op, model.cost, model.logits, model.val_logits, model.logits_pos, model.val_logits_pos,
                    model.logits_hyp, model.val_logits_hyp]
@@ -503,6 +541,8 @@ if __name__ == "__main__":
                         help='Should the system learn to annotate for POS as well?')
     parser.add_argument('-hypernym_classifier', dest='hypernym_classifier', required=False, default="False",
                         help='Should the system learn to annotate for WordNet hypernyms as well?')
+    parser.add_argument('-frequency_classifier', dest='frequency_classifier', required=False, default="False",
+                        help='Should the system learn to annotate the frequency bin class of words as well?')
     parser.add_argument('-hypernymy_rels', dest='hypernymy_rels', required=False, default="False",
                         help='Path to file with hypernymy hierarchy.')
     parser.add_argument('-word_embedding_method', dest='word_embedding_method', required=False, default="tensorflow",
@@ -668,6 +708,7 @@ if __name__ == "__main__":
     pos_classifier = args.pos_classifier
     wsd_classifier = args.wsd_classifier
     hypernym_classifier = args.hypernym_classifier
+    freq_classifier = args.frequency_classifier
     hypernymy_rels = args.hypernymy_rels
     diff_data_sources = args.diff_data_sources
     sensekey2synset = args.sensekey2synset
@@ -693,7 +734,8 @@ if __name__ == "__main__":
             data_ops.read_folder_semcor(data, wsd_method=wsd_method, f_lex=lexicon,
                                         hypernym_classifier=hypernym_classifier, syn2hyp=syn2hyp)
     elif data_source == "uniroma":
-        data, lemma2synsets, lemma2id, synset2id, synID_mapping, id2synset, id2pos, known_lemmas, synset2freq = \
+        hyp2id, pos_types = {}, {}
+        data, lemma2synsets, lemma2id, synset2id, synID_mapping, id2synset, id2pos, known_lemmas, synset2freq, lemma2freq = \
             data_ops.read_data_uniroma(data, sensekey2synset, wsd_method=wsd_method, f_lex=lexicon)
     test_data = args.test_data
     if test_data == "None":
@@ -713,10 +755,18 @@ if __name__ == "__main__":
                                         wsd_method=wsd_method, hyp2id=hyp2id, hypernym_classifier=hypernym_classifier,
                                         syn2hyp=syn2hyp)
         elif data_source == "uniroma" or diff_data_sources == "True":
-            val_data, lemma2synsets, lemma2id, synset2id, synID_mapping, id2synset, id2pos, known_lemmas, synset2freq = \
+            val_data, lemma2synsets, lemma2id, synset2id, synID_mapping, id2synset, id2pos, known_lemmas, synset2freq, lemma2freq = \
             data_ops.read_data_uniroma(test_data, sensekey2synset, lemma2synsets, lemma2id, synset2id, synID_mapping,
                                        id2synset, id2pos, known_lemmas, synset2freq, wsd_method=wsd_method, mode="test",
                                        hypernym_classifier=hypernym_classifier, syn2hyp=syn2hyp, hyp2id=hyp2id)
+    freq_types = {}
+    if freq_classifier == "True":
+        freq_types[-14] = 0
+        freq_type_count = 1
+        for lemma, freq in lemma2freq.iteritems():
+            if freq not in freq_types:
+                freq_types[freq] = freq_type_count
+                freq_type_count += 1
     # get mapping from pos_ids to pos labels:
     if pos_classifier == "True":
         id2pos = {}
@@ -757,17 +807,19 @@ if __name__ == "__main__":
 
     val_inputs, val_input_lemmas, val_seq_lengths, val_labels, val_words_to_disambiguate, \
     val_indices, val_lemmas_to_disambiguate, val_synsets_gold, val_pos_filters, val_pos_labels, \
-    val_labels_hyp, val_indices_hyp, val_lemmas_hyp, val_pos_filters_hyp = data_ops.format_data\
+    val_labels_hyp, val_indices_hyp, val_lemmas_hyp, val_pos_filters_hyp, val_freq_labels = data_ops.format_data\
                                                     (wsd_method, val_data, src2id, src2id_lemmas, synset2id,
                                                      synID_mapping, seq_width, word_embedding_case, word_embedding_input,
                                                      sense_embeddings, 0, lemma_embedding_dim, pos_types, "evaluation",
                                                      use_pos=use_pos, pos_classifier=pos_classifier,
-                                                     hypernym_classifier=hypernym_classifier, hyp2id=hyp2id)
+                                                     hypernym_classifier=hypernym_classifier, hyp2id=hyp2id,
+                                                     freq_classifier=freq_classifier, lemma2freq=lemma2freq, freq_types=freq_types)
 
     # Function to calculate the accuracy on a batch of results and gold labels
     def accuracy(logits, lemmas, synsets_gold, pos_filters, synset2id, indices=None, synID_mapping=synID_mapping,
                  pos_classifier="False", wsd_classifier="True", use_gold_pos="False", logits_pos=None, labels_pos=None,
-                 hypernym_classifier="False", logits_hyp=None, labels_hyp=None, lemmas_hyp=None, pos_filters_hyp=None):
+                 hypernym_classifier="False", logits_hyp=None, labels_hyp=None, lemmas_hyp=None, pos_filters_hyp=None,
+                 freq_classifier="False", logits_freq=None, labels_freq=None):
 
         if pos_classifier == "False":
             use_gold_pos = "True"
@@ -865,7 +917,17 @@ if __name__ == "__main__":
             #     eval_cases_hyp += 1
             accuracy_hyp = (100.0 * matching_cases_hyp) / eval_cases_hyp
 
-        return accuracy_wsd, accuracy_pos, accuracy_hyp
+        accuracy_freq = 0.0
+        if freq_classifier == "True":
+            matching_cases_freq = 0
+            eval_cases_freq = 0
+            for i, logit_freq in enumerate(logits_freq):
+                if np.argmax(logit_freq) == np.argmax(labels_freq[i]):
+                    matching_cases_freq += 1
+                eval_cases_freq += 1
+            accuracy_freq = (100.0 * matching_cases_freq) / eval_cases_freq
+
+        return accuracy_wsd, accuracy_pos, accuracy_hyp, accuracy_freq
 
     def accuracy_cosine_distance (logits, lemmas, synsets_gold, pos_filters):
 
@@ -902,12 +964,13 @@ if __name__ == "__main__":
 
         batch = data[offset:(offset+batch_size)]
         inputs, input_lemmas, seq_lengths, labels, words_to_disambiguate, indices, lemmas, synsets_gold, pos_filters, \
-        pos_labels, hyp_labels, hyp_indices, _, _ = data_ops.format_data(wsd_method, batch, src2id, src2id_lemmas, synset2id, synID_mapping, seq_width,
+        pos_labels, hyp_labels, hyp_indices, _, _, freq_labels = data_ops.format_data(wsd_method, batch, src2id, src2id_lemmas, synset2id, synID_mapping, seq_width,
                                  word_embedding_case, word_embedding_input, sense_embeddings, dropword,
                                  lemma_embedding_dim=lemma_embedding_dim, pos_types=pos_types, use_pos=use_pos,
-                                 pos_classifier=pos_classifier, hypernym_classifier=hypernym_classifier, hyp2id=hyp2id)
+                                 pos_classifier=pos_classifier, hypernym_classifier=hypernym_classifier, hyp2id=hyp2id,
+                                 freq_classifier=freq_classifier, lemma2freq=lemma2freq, freq_types=freq_types)
         return inputs, input_lemmas, seq_lengths, labels, words_to_disambiguate, indices, lemmas, synsets_gold, \
-               pos_filters, pos_labels, hyp_labels, hyp_indices
+               pos_filters, pos_labels, hyp_labels, hyp_indices, freq_labels
 
     model = None
     if wsd_method == "similarity":
@@ -922,8 +985,8 @@ if __name__ == "__main__":
         model = ModelSingleSoftmax(synset2id, word_embedding_dim, vocab_size, batch_size, seq_width, n_hidden,
                                    n_hidden_layers, val_inputs, val_input_lemmas, val_seq_lengths, val_words_to_disambiguate,
                                    val_indices, val_labels, lemma_embedding_dim, len(src2id_lemmas), wsd_classifier,
-                                   pos_classifier, len(pos_types), val_pos_labels, hypernym_classifier, hyp2id,
-                                   val_labels_hyp, val_indices_hyp)
+                                   pos_classifier, freq_classifier, len(pos_types), val_pos_labels, hypernym_classifier, hyp2id,
+                                   val_labels_hyp, val_indices_hyp, val_freq_labels, freq_types)
     elif wsd_method == "multitask":
         if word_embedding_input == "wordform":
             output_embedding_dim = word_embedding_dim
@@ -932,7 +995,7 @@ if __name__ == "__main__":
         model = ModelMultiTaskLearning(word_embedding_input, synID_mapping, output_embedding_dim, lemma_embedding_dim,
                                        vocab_size_lemmas, batch_size, seq_width, n_hidden, val_inputs, val_seq_lengths,
                                        val_words_to_disambiguate, val_indices, val_labels[0], val_labels[1],
-                                       word_embedding_dim, vocab_size)
+                                       word_embedding_dim, vocab_size, freq_classifier, val_freq_labels, freq_types)
 
 
 
@@ -1001,11 +1064,11 @@ if __name__ == "__main__":
     for step in range(training_iters):
         offset = (step * batch_size) % (len(data) - batch_size)
         inputs, input_lemmas, seq_lengths, labels, words_to_disambiguate, indices, lemmas_to_disambiguate, \
-        synsets_gold, pos_filters, pos_labels, hyp_labels, hyp_indices = new_batch(offset)
+        synsets_gold, pos_filters, pos_labels, hyp_labels, hyp_indices, freq_labels = new_batch(offset)
         if (len(labels) == 0):
             continue
         input_data = [inputs, input_lemmas, seq_lengths, labels, words_to_disambiguate, indices, pos_labels, hyp_labels,
-                      hyp_indices]
+                      hyp_indices, freq_labels]
         val_accuracy = 0.0
         if (step % 100 == 0):
             print "Step number " + str(step)
@@ -1030,7 +1093,7 @@ if __name__ == "__main__":
                 #     with open(os.path.join(args.save_path, 'src2id_lemmas.pkl'), 'wb') as output:
                 #         pickle.dump(src2id_lemmas, output, pickle.HIGHEST_PROTOCOL)
             elif wsd_method == "fullsoftmax":
-                val_accuracy, val_accuracy_pos, val_accuracy_hyp = accuracy(fetches[3], val_lemmas_to_disambiguate, val_synsets_gold,
+                val_accuracy, val_accuracy_pos, val_accuracy_hyp, val_accuracy_freq = accuracy(fetches[3], val_lemmas_to_disambiguate, val_synsets_gold,
                                                           val_pos_filters, synset2id, val_indices, pos_classifier=pos_classifier,
                                                           wsd_classifier=wsd_classifier, logits_pos=fetches[5],
                                                           labels_pos=val_pos_labels, hypernym_classifier=hypernym_classifier,
@@ -1043,11 +1106,11 @@ if __name__ == "__main__":
                               + '\n')
                 results.write('Validation accuracy: ' + str(val_accuracy) + '\n')
             elif wsd_method == "multitask":
-                val_accuracy = accuracy(fetches[4], val_lemmas_to_disambiguate, val_synsets_gold, val_pos_filters,
-                                        synset2id, synID_mapping)
+                val_accuracy, _, _, val_accuracy_freq = accuracy(fetches[3], val_lemmas_to_disambiguate, val_synsets_gold, val_pos_filters,
+                                        synset2id, synID_mapping, freq_classifier=freq_classifier, logits_freq=fetches[8], labels_freq=val_freq_labels)
                 results.write('Minibatch classification accuracy: ' +
                               str(accuracy(fetches[3], lemmas_to_disambiguate, synsets_gold, pos_filters,
-                                           synset2id, synID_mapping)) + '\n')
+                                           synset2id, synID_mapping)[0]) + '\n')
                 results.write('Validation classification accuracy: ' + str(val_accuracy) + '\n')
                 val_accuracy_r = accuracy_cosine_distance(fetches[6], val_lemmas_to_disambiguate, val_synsets_gold,
                                                           val_pos_filters)
@@ -1059,6 +1122,8 @@ if __name__ == "__main__":
                 # ops = [model.train_op, model.cost_c, model.cost_r, model.logits, model.val_logits,
                 #        model.output_emb, model.val_output_emb]
             print "Validation accuracy: " + str(val_accuracy)
+            if freq_classifier == "True":
+                print "Validation accuracy for frequency classification is: " + str(val_accuracy_freq)
             if pos_classifier == "True":
                 print "Validation accuracy for POS: " + str(val_accuracy_pos)
                 results.write('Validation accuracy for POS: ' + str(val_accuracy_pos) + '\n')
@@ -1078,7 +1143,7 @@ if __name__ == "__main__":
         if val_accuracy > best_accuracy:
             best_accuracy = val_accuracy
             if pos_classifier == "True" and wsd_classifier == "True":
-                val_accuracy_gold_pos, _, _ = accuracy(fetches[3], val_lemmas_to_disambiguate, val_synsets_gold,
+                val_accuracy_gold_pos, _, _, _ = accuracy(fetches[3], val_lemmas_to_disambiguate, val_synsets_gold,
                                                           val_pos_filters, synset2id, val_indices,
                                                           pos_classifier=pos_classifier, use_gold_pos="True",
                                                           logits_pos=fetches[5], labels_pos=val_pos_labels)

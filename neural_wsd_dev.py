@@ -867,6 +867,34 @@ if __name__ == "__main__":
             batch_loss = 0.0
             if wsd_method == "multitask":
                 batch_loss_r = 0.0
+
+            # if val_accuracy > best_accuracy:
+            #     best_accuracy = val_accuracy
+            # if multitask == "True" and val_accuracy_r > best_accuracy_r:
+            #     best_accurary_r = val_accuracy_r
+
+            if (args.save_path != "None" and step == 10000 or step > 10000 and val_accuracy > best_accuracy):
+                best_accuracy = val_accuracy
+                for file in os.listdir(model_path):
+                    os.remove(os.path.join(model_path, file))
+                saver.save(session, os.path.join(args.save_path, "model/model.ckpt"), global_step=step)
+                if (step == 25000):
+                    with open(os.path.join(args.save_path, 'lemma2synsets.pkl'), 'wb') as output:
+                        pickle.dump(lemma2synsets, output, pickle.HIGHEST_PROTOCOL)
+                    with open(os.path.join(args.save_path, 'lemma2id.pkl'), 'wb') as output:
+                        pickle.dump(lemma2id, output, pickle.HIGHEST_PROTOCOL)
+                    with open(os.path.join(args.save_path, 'synset2id.pkl'), 'wb') as output:
+                        pickle.dump(synset2id, output, pickle.HIGHEST_PROTOCOL)
+                    with open(os.path.join(args.save_path, 'id2synset.pkl'), 'wb') as output:
+                        pickle.dump(id2synset, output, pickle.HIGHEST_PROTOCOL)
+
+            if multitask == "True":
+                if (step > 0 and val_accuracy_r > best_accuracy_r):
+                    best_accurary_r = val_accuracy_r
+                    for file in os.listdir(model_path_r):
+                        os.remove(os.path.join(model_path_r, file))
+                    saver.save(session, os.path.join(args.save_path, "model_r/model.ckpt"), global_step=step)
+                val_accuracy_r = 0.0
         else:
             fetches = run_epoch(session, model, input_data, keep_prob, mode="train", multitask=multitask)
             if (fetches[1] is not None):
@@ -874,30 +902,6 @@ if __name__ == "__main__":
             if multitask == "True" and fetches[2] is not None:
                 batch_loss_r += fetches[2]
 
-        if val_accuracy > best_accuracy:
-            best_accuracy = val_accuracy
-        if multitask == "True" and val_accuracy_r > best_accuracy_r:
-            best_accurary_r = val_accuracy_r
-
-        if (args.save_path != "None" and step == 10000 or step > 10000 and val_accuracy == best_accuracy):
-            for file in os.listdir(model_path):
-                os.remove(os.path.join(model_path, file))
-            saver.save(session, os.path.join(args.save_path, "model/model.ckpt"), global_step=step)
-            if (step == 25000):
-                with open(os.path.join(args.save_path, 'lemma2synsets.pkl'), 'wb') as output:
-                    pickle.dump(lemma2synsets, output, pickle.HIGHEST_PROTOCOL)
-                with open(os.path.join(args.save_path, 'lemma2id.pkl'), 'wb') as output:
-                    pickle.dump(lemma2id, output, pickle.HIGHEST_PROTOCOL)
-                with open(os.path.join(args.save_path, 'synset2id.pkl'), 'wb') as output:
-                    pickle.dump(synset2id, output, pickle.HIGHEST_PROTOCOL)
-                with open(os.path.join(args.save_path, 'id2synset.pkl'), 'wb') as output:
-                    pickle.dump(id2synset, output, pickle.HIGHEST_PROTOCOL)
-
-        if multitask == "True":
-            if (step > 10000 and val_accuracy_r == best_accuracy_r):
-                for file in os.listdir(model_path_r):
-                    os.remove(os.path.join(model_path_r, file))
-                saver.save(session, os.path.join(args.save_path, "model_r/model.ckpt"), global_step=step)
 
     results.write('\n\n\n' + 'Best result is: ' + str(best_accuracy))
     if multitask == "True":

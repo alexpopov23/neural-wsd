@@ -873,7 +873,7 @@ if __name__ == "__main__":
             # if multitask == "True" and val_accuracy_r > best_accuracy_r:
             #     best_accurary_r = val_accuracy_r
 
-            if (args.save_path != "None" and step == 10000 or step > 10000 and val_accuracy > best_accuracy):
+            if (step > 0 and val_accuracy > best_accuracy):
                 best_accuracy = val_accuracy
                 for file in os.listdir(model_path):
                     os.remove(os.path.join(model_path, file))

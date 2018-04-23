@@ -890,11 +890,10 @@ if __name__ == "__main__":
 
             if multitask == "True":
                 if (step > 0 and val_accuracy_r > best_accuracy_r):
-                    best_accurary_r = val_accuracy_r
+                    best_accuracy_r = val_accuracy_r
                     for file in os.listdir(model_path_r):
                         os.remove(os.path.join(model_path_r, file))
                     saver.save(session, os.path.join(args.save_path, "model_r/model.ckpt"), global_step=step)
-                val_accuracy_r = 0.0
         else:
             fetches = run_epoch(session, model, input_data, keep_prob, mode="train", multitask=multitask)
             if (fetches[1] is not None):

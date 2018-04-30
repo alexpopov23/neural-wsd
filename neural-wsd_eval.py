@@ -805,7 +805,7 @@ if __name__ == "__main__":
     saver = tf.train.Saver()
     #session.run(tf.global_variables_initializer())
     if mode == "application":
-        saver.restore(session, os.path.join(args.save_path, "model/model.ckpt-39300"))
+        saver.restore(session, os.path.join(args.save_path, "model/model.ckpt-73400"))
         app_data = args.app_data
         data, lemma2synsets, lemma2id, synset2id, synID_mapping, id2synset, id2pos, known_lemmas, synset2freq = \
         data_ops.read_data_uniroma(app_data, sensekey2synset, lemma2synsets, lemma2id, synset2id, synID_mapping,

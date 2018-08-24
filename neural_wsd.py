@@ -1,5 +1,4 @@
 import argparse
-import os
 import pickle
 
 import load_embeddings
@@ -48,7 +47,7 @@ if __name__ == "__main__":
                         help='Whether the POS tags should be converted. Options are: coarsegrained, finegrained')
     parser.add_argument('-save_path', dest='save_path', required=False,
                         help='Path to where the model should be saved.')
-    parser.add_argument('-sensekey2synset', dest='sensekey2synset', required=False,
+    parser.add_argument('-sensekey2synset_path', dest='sensekey2synset_path', required=False,
                         help='Path to mapping between sense annotations in the corpus and synset IDs in WordNet.')
     parser.add_argument('-sequence_width', dest='sequence_width', required=False, default=63,
                         help='Maximum length of a sentence to be passed to the network (the rest is cut off).')
@@ -112,20 +111,20 @@ if __name__ == "__main__":
         sensekey2synset = pickle.load(open(sensekey2synset_path, "rb"))
     lemma2synsets = read_data.get_wordnet_lexicon(lexicon_path)
     if train_data_format == "naf":
-        train_data, lemma2id, known_lemmas, synset2id, synID_mapping = \
+        train_data, lemma2id, known_lemmas, synset2id, syn_id_mapping = \
             read_data.read_data_naf(train_data_path, lemma2synsets, mode=mode, wsd_method=wsd_method,
                                     pos_tagset=pos_tagset)
     elif train_data_format == "uef":
-        train_data, lemma2id, known_lemmas, synset2id, synID_mapping = \
-            read_data.read_data_uef(train_data_path, lemma2synsets, mode=mode, wsd_method=wsd_method)
+        train_data, lemma2id, known_lemmas, synset2id, syn_id_mapping = \
+            read_data.read_data_uef(train_data_path, sensekey2synset, lemma2synsets, mode=mode, wsd_method=wsd_method)
     if test_data_format == "naf":
-        test_data, _, _, _, synID_mapping = \
+        test_data, _, _, _, syn_id_mapping = \
             read_data.read_data_naf(test_data_path, lemma2synsets,  lemma2id=lemma2id, known_lemmas=known_lemmas,
                                     synset2id=synset2id, mode=mode, wsd_method=wsd_method, pos_tagset=pos_tagset)
     elif test_data_format == "uef":
-        test_data, _, _, _, synID_mapping = \
-            read_data.read_data_uef(test_data_path, lemma2synsets,  lemma2id=lemma2id, known_lemmas=known_lemmas,
-                                    synset2id=synset2id, mode=mode, wsd_method=wsd_method)
+        test_data, _, _, _, syn_id_mapping = \
+            read_data.read_data_uef(test_data_path, sensekey2synset, lemma2synsets, lemma2id=lemma2id,
+                                    known_lemmas=known_lemmas, synset2id=synset2id, mode=mode, wsd_method=wsd_method)
 
     # TODO format test data
     # TODO initialize model

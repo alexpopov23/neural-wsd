@@ -1,0 +1,5 @@
+***
+ValueError: invalid literal for int() with base 10: 'the'
+
+--> missing header: <number of lines, dimension of embeddings>
+Use <sed -i '1s/^/400000 300\n/' glove.6B.300d.txt> to insert it

@@ -187,7 +187,11 @@ def get_sensekey2synset ():
     sensekey2synset = {}
     for syn in syns:
         synset_id = str(syn.offset())
-        synset_id = (8 - len(synset_id)) * "0" + synset_id + "-" + syn.pos()
+        if syn.pos() == "s":
+            pos = "a"
+        else:
+            pos = syn.pos()
+        synset_id = (8 - len(synset_id)) * "0" + synset_id + "-" + pos
         lemmas = syn.lemmas()
         for lemma in lemmas:
             key = lemma.key()

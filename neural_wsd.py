@@ -44,20 +44,22 @@ if __name__ == "__main__":
                         help='Size of the hidden layer.')
     parser.add_argument('-n_hidden_layers', dest='n_hidden_layers', required=False, default=1,
                         help='Number of the hidden LSTMs in the forward/backward modules.')
+    parser.add_argument('-pos_tagset', dest='pos_tagset', required=False, default="coarsegrained",
+                        help='Whether the POS tags should be converted. Options are: coarsegrained, finegrained')
     parser.add_argument('-save_path', dest='save_path', required=False,
                         help='Path to where the model should be saved.')
     parser.add_argument('-sensekey2synset', dest='sensekey2synset', required=False,
                         help='Path to mapping between sense annotations in the corpus and synset IDs in WordNet.')
     parser.add_argument('-sequence_width', dest='sequence_width', required=False, default=63,
                         help='Maximum length of a sentence to be passed to the network (the rest is cut off).')
-    parser.add_argument('-test_data', dest='test_data', required=False,
+    parser.add_argument('-test_data_path', dest='test_data', required=False,
                         help='The path to the gold corpus used for testing.')
     parser.add_argument("-test_data_format", dest="test_data_format", required=False,
-                        help="Specifies the format of the evaluation corpus. Options: naf, uniroma")
-    parser.add_argument('-train_data', dest='train_data', required=False,
+                        help="Specifies the format of the evaluation corpus. Options: naf, uef")
+    parser.add_argument('-train_data_path', dest='train_data', required=False,
                         help='The path to the gold corpus used for training.')
     parser.add_argument("-train_data_format", dest="train_data_format", required=False,
-                        help="Specifies the format of the training corpus. Options: naf, uniroma")
+                        help="Specifies the format of the training corpus. Options: naf, uef")
     parser.add_argument('-training_iterations', dest='training_iterations', required=False, default=100000,
                         help='How many iterations the network should train for.')
     parser.add_argument('-wsd_method', dest='wsd_method', required=True,
@@ -88,12 +90,13 @@ if __name__ == "__main__":
     mode = args.mode
     n_hidden = int(args.n_hidden)
     n_hidden_layers = int(args.n_hidden_layers)
+    pos_tagset = args.pos_tagset
     save_path = args.save_path
     sensekey2synset_path = args.sensekey2synset_path
     sequence_width = args.sequence_width
-    test_data = args.test_data
+    test_data_path = args.test_data
     test_data_format = args.test_data_format
-    train_data = args.train_data
+    train_data_path = args.train_data
     train_data_format = args.train_data_format
     training_iterations = args.training_iterations
     wsd_method = args.wsd_method
@@ -103,21 +106,26 @@ if __name__ == "__main__":
     if embeddings2_path is not None:
         embeddings2, emb2_src2id, emb2_id2src = load_embeddings.load(embeddings2_path)
 
-    # TODO load training/test data and auxiliary resources
+    ''' Read data and auxiliary resource according to specified formats'''
     # Obtain mapping between data-specific sense codes and WN synset IDs
-    if train_data_format == "uniroma" or test_data_format == "uniroma":
+    if train_data_format == "uef" or test_data_format == "uef":
         sensekey2synset = pickle.load(open(sensekey2synset_path, "rb"))
-    lemma2synsets, lemma2id, synset2id = read_data.get_wordnet_lexicon(lexicon_path)
-    # Read train and test data files into a standard format+
+    lemma2synsets = read_data.get_wordnet_lexicon(lexicon_path)
     if train_data_format == "naf":
-        pass
-    # if data_source == "naf":
-    #     data, lemma2synsets, lemma2id, synset2id, id2synset, id2pos = \
-    #         data_ops.read_folder_semcor(data, lexicon_mode=lexicon_mode, f_lex=lexicon)
-    # elif data_source == "uniroma":
-    #     data, lemma2synsets, lemma2id, synset2id, synID_mapping, id2synset, id2pos, known_lemmas, synset2freq = \
-    #         data_ops.read_data_uniroma(data, sensekey2synset, wsd_method=wsd_method, f_lex=lexicon)
-
+        train_data, lemma2id, known_lemmas, synset2id, synID_mapping = \
+            read_data.read_data_naf(train_data_path, lemma2synsets, mode=mode, wsd_method=wsd_method,
+                                    pos_tagset=pos_tagset)
+    elif train_data_format == "uef":
+        train_data, lemma2id, known_lemmas, synset2id, synID_mapping = \
+            read_data.read_data_uef(train_data_path, lemma2synsets, mode=mode, wsd_method=wsd_method)
+    if test_data_format == "naf":
+        test_data, _, _, _, synID_mapping = \
+            read_data.read_data_naf(test_data_path, lemma2synsets,  lemma2id=lemma2id, known_lemmas=known_lemmas,
+                                    synset2id=synset2id, mode=mode, wsd_method=wsd_method, pos_tagset=pos_tagset)
+    elif test_data_format == "uef":
+        test_data, _, _, _, synID_mapping = \
+            read_data.read_data_uef(test_data_path, lemma2synsets,  lemma2id=lemma2id, known_lemmas=known_lemmas,
+                                    synset2id=synset2id, mode=mode, wsd_method=wsd_method)
 
     # TODO format test data
     # TODO initialize model

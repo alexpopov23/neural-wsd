@@ -75,13 +75,11 @@ if __name__ == "__main__":
     embeddings1_path = args.embeddings1_path
     embeddings1_case = args.embeddings1_case
     embeddings1_dim = args.embeddings1_dim
-    # embeddings1_format = args.embeddings1_format
     embeddings1_input = args.embeddings1_input
     embeddings2_path = args.embeddings2_path
     if embeddings2_path is not None:
         embeddings2_case = args.embeddings2_case
         embeddings2_dim = args.embeddings2_dim
-        # embeddings2_format = args.embeddings2_format
         embeddings2_input = args.embeddings2_input
     keep_prob = float(args.keep_prob)
     learning_rate = float(args.learning_rate)
@@ -106,29 +104,33 @@ if __name__ == "__main__":
         embeddings2, emb2_src2id, emb2_id2src = load_embeddings.load(embeddings2_path)
 
     ''' Read data and auxiliary resource according to specified formats'''
-    # Obtain mapping between data-specific sense codes and WN synset IDs
     if train_data_format == "uef" or test_data_format == "uef":
         sensekey2synset = pickle.load(open(sensekey2synset_path, "rb"))
     lemma2synsets = read_data.get_wordnet_lexicon(lexicon_path)
     if train_data_format == "naf":
-        train_data, lemma2id, known_lemmas, synset2id, syn_id_mapping = \
+        train_data, lemma2id, known_lemmas, known_pos, synset2id, syn_id_mapping = \
             read_data.read_data_naf(train_data_path, lemma2synsets, mode=mode, wsd_method=wsd_method,
                                     pos_tagset=pos_tagset)
     elif train_data_format == "uef":
-        train_data, lemma2id, known_lemmas, synset2id, syn_id_mapping = \
+        train_data, lemma2id, known_lemmas, known_pos, synset2id, syn_id_mapping = \
             read_data.read_data_uef(train_data_path, sensekey2synset, lemma2synsets, mode=mode, wsd_method=wsd_method)
     if test_data_format == "naf":
-        test_data, _, _, _, syn_id_mapping = \
+        test_data, _, _, _, _, syn_id_mapping = \
             read_data.read_data_naf(test_data_path, lemma2synsets,  lemma2id=lemma2id, known_lemmas=known_lemmas,
                                     synset2id=synset2id, mode=mode, wsd_method=wsd_method, pos_tagset=pos_tagset)
     elif test_data_format == "uef":
-        test_data, _, _, _, syn_id_mapping = \
+        test_data, _, _, _, _, syn_id_mapping = \
             read_data.read_data_uef(test_data_path, sensekey2synset, lemma2synsets, lemma2id=lemma2id,
                                     known_lemmas=known_lemmas, synset2id=synset2id, mode=mode, wsd_method=wsd_method)
 
+    ''' Transform the test data into the input format readable by the neural models'''
+    # val_inputs, val_input_lemmas, val_seq_lengths, val_labels, val_words_to_disambiguate, \
+    # val_indices, val_lemmas_to_disambiguate, val_synsets_gold, val_pos_filters = data_ops.format_data\
+    #                                                 (wsd_method, val_data, src2id, src2id_lemmas, synset2id,
+    #                                                  synID_mapping, seq_width, word_embedding_case, word_embedding_input,
+    #                                                  sense_embeddings, 0, lemma_embedding_dim, "evaluation", use_pos=use_pos)
     # TODO format test data
     # TODO initialize model
     # TODO eval or train model
 
     print "This is the end."
-

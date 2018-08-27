@@ -115,12 +115,13 @@ def add_synset_ids(wsd_method, data, known_lemmas, synset2id):
     return data
 
 
-def read_naf_file(path, pos_tagset):
+def read_naf_file(path, pos_tagset, pos_types):
     """Reads file in NAF format
 
     Args:
         path: A string, the path to the NAF file
         pos_tagset: A string, indicates whether POS tags should be coarse- or fine-grained
+        pos_types: A dictionary, maps known POS tags to unique integer IDs
 
     Returns:
         sentences: A list of lists; each sentence contains "words" represented
@@ -132,6 +133,7 @@ def read_naf_file(path, pos_tagset):
     wfs = text.findall("wf")
     corpus = {}
     known_lemmas = set()
+    pos_count = len(pos_types)
     for wf in wfs:
         wf_id = int(wf.get("id")[1:])
         wf_text = wf.text
@@ -146,6 +148,9 @@ def read_naf_file(path, pos_tagset):
         if pos_tagset == "coarsegrained":
             if pos in globals.pos_map:
                 pos = globals.pos_map[pos]
+        if pos not in pos_types:
+            pos_types[pos] = pos_count
+            pos_count += 1
         id = int(term.find("span").find("target").get("id")[1:])
         synset = "unspecified"
         ext_refs = term.find("externalReferences")
@@ -198,21 +203,23 @@ def read_data_naf(path, lemma2synsets, lemma2id={}, known_lemmas=set(), synset2i
               in the format: [wordform, lemma, POS, [synset1, ..., synsetN]]
         lemma2id: A dictionary, mapping lemmas to integer IDs
         known_lemmas: A set, all lemmas seen in training
+        pos_types: A dictionary, all POS tags seen in training and their mappings to integer IDs
         synset2id: A dictionary, mapping synsets to integer IDs
         syn_id_mapping: A dictionary, maps synsets of lemmas seen in training to all possible synsets
                        (for multitask training)
     """
     data = []
     syn_id_mapping = {}
+    pos_types = {}
     for f in os.listdir(path):
-        new_data, new_lemmas = read_naf_file(os.path.join(path, f), pos_tagset)
+        new_data, new_lemmas, new_pos = read_naf_file(os.path.join(path, f), pos_tagset, pos_types)
         known_lemmas.update(new_lemmas)
         data.extend(new_data)
     if mode == "train":
         lemma2id, synset2id, syn_id_mapping = get_lemma_synset_maps(wsd_method, lemma2synsets, known_lemmas, lemma2id,
                                                                     synset2id, syn_id_mapping)
     data = add_synset_ids(wsd_method, data, known_lemmas, synset2id)
-    return data, lemma2id, known_lemmas, synset2id, syn_id_mapping
+    return data, lemma2id, known_lemmas, pos_types, synset2id, syn_id_mapping
 
 
 def read_data_uef(path, sensekey2synset, lemma2synsets, lemma2id={}, known_lemmas=set(), synset2id={},
@@ -234,12 +241,14 @@ def read_data_uef(path, sensekey2synset, lemma2synsets, lemma2id={}, known_lemma
               in the format: [wordform, lemma, POS, [synset1, ..., synsetN]]
         lemma2id: A dictionary, mapping lemmas to integer IDs
         known_lemmas: A set, all lemmas seen in training
+        pos_types: A dictionary, all POS tags seen in training and their mappings to integer IDs
         synset2id: A dictionary, mapping synsets to integer IDs
         syn_id_mapping: A dictionary, maps synsets of lemmas seen in training to all possible synsets
                        (for multitask training)
     """
     data = []
     syn_id_mapping = {}
+    pos_types, pos_count = {}, 0
     path_data = ""
     path_keys = ""
     for f in os.listdir(path):
@@ -270,6 +279,9 @@ def read_data_uef(path, sensekey2synset, lemma2synsets, lemma2id={}, known_lemma
                     if mode == "train":
                         known_lemmas.add(lemma)
                     pos = element.get("pos")
+                    if pos not in pos_types:
+                        pos_types[pos] = pos_count
+                        pos_count += 1
                     if element.tag == "instance":
                         synsets = [sensekey2synset[key] for key in codes2keys[element.get("id")]]
                     else:
@@ -280,4 +292,4 @@ def read_data_uef(path, sensekey2synset, lemma2synsets, lemma2id={}, known_lemma
         lemma2id, synset2id, syn_id_mapping = get_lemma_synset_maps(wsd_method, lemma2synsets, known_lemmas, lemma2id,
                                                                     synset2id, syn_id_mapping)
     data = add_synset_ids(wsd_method, data, known_lemmas, synset2id)
-    return data, lemma2id, known_lemmas, synset2id, syn_id_mapping
+    return data, lemma2id, known_lemmas, pos_types, synset2id, syn_id_mapping

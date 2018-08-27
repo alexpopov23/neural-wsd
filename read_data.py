@@ -145,7 +145,7 @@ def read_naf_file(path, pos_tagset):
             pos = globals.pos_normalize[pos]
         if pos_tagset == "coarsegrained":
             if pos in globals.pos_map:
-                pos = globals.pos_map
+                pos = globals.pos_map[pos]
         id = int(term.find("span").find("target").get("id")[1:])
         synset = "unspecified"
         ext_refs = term.find("externalReferences")

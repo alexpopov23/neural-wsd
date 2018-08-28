@@ -17,7 +17,7 @@ def get_embedding_id(word, input, case, src2id):
         embedding_id: An integer, the index into the embeddings model
     """
     if input == "wordform":
-        if word[0] not in src2id:
+        if word[0].lower() not in src2id:
             return src2id["UNK"]
         if case == "lowercase":
             embedding_id = src2id[word[0].lower()]
@@ -30,8 +30,8 @@ def get_embedding_id(word, input, case, src2id):
     return embedding_id
 
 
-def format_data (data, emb1_src2id, emb1_input, emb1_case, synset2id, max_seq_length,
-                 emb2_src2id=None, emb2_input=None, emb2_case=None, emb_dim=None, syn_id_mapping=None,
+def format_data (data, emb1_src2id, emb1_input, emb1_case, synset2id, max_seq_length, embeddings1=None,
+                 emb2_src2id=None, emb2_input=None, emb2_case=None, emb_dim=None,
                  pos_types=None, pos_classifier=False, wsd_method="classifier"):
     """Takes a training/test corpus and transforms it to be readable by the neural models
 
@@ -42,12 +42,11 @@ def format_data (data, emb1_src2id, emb1_input, emb1_case, synset2id, max_seq_le
         emb1_case: A string, indicates the case of the embedding strings
         synset2id: A dictionary, mapping synsets to integer IDs
         max_seq_length: An integer, the maximum allowed length per sentence
+        embeddings1: An array, the primary embeddings (necessary for preparing the context embedding data)
         emb2_src2id: A dictionary, maps strings to embedding integer IDs
         emb2_input: A string, indicates whether the embeddings apply to wordforms or lemmas
         emb2_case: A string, indicates the case of the embedding strings
         emb_dim: An integer, indicates the size of the embeddings; needed by the context embedding method
-        syn_id_mapping: A dictionary, maps synsets of lemmas seen in training to all possible synsets
-                       (for multitask training)
         pos_types: A dictionary, all POS tags seen in training and their mappings to integer IDs
         pos_classifier: A boolean, indicates whether POS labels are needed by the system
         wsd_method: A string, indicates the disamguation method used ("classification", "context_embedding", "multitask")
@@ -81,27 +80,29 @@ def format_data (data, emb1_src2id, emb1_input, emb1_case, synset2id, max_seq_le
             # Obtain the synset gold labels / embeddings
             if (word[4][0] > -1):
                 if wsd_method == "classifer" or wsd_method == "multitask":
-                    c_label_classif = numpy.zeros(len(syn_id_mapping), dtype=float)
+                    c_label_classif = numpy.zeros(len(synset2id), dtype=float)
                     for synset_id in word[4]:
-                        if syn_id_mapping is None:
+                        if synset_id < len(synset2id):
                             c_label_classif[synset_id] = 1.0/len(word[4])
-                        elif synset_id in syn_id_mapping:
-                            c_label_classif[syn_id_mapping[synset_id]] = 1.0/len(word[4])
                         else:
-                            if word[2] == "NOUN" or globals.pos_map[word[2]] == "NOUN":
+                            if word[2] in globals.pos_map:
+                                pos = globals.pos_map[word[2]]
+                            else:
+                                pos = word[2]
+                            if pos == "NOUN":
                                 c_label_classif[synset2id['notseen-n']] = 1.0 / len(word[4])
-                            elif word[2] == "VERB" or globals.pos_map[word[2]] == "VERB":
+                            elif pos == "VERB":
                                 c_label_classif[synset2id['notseen-v']] = 1.0 / len(word[4])
-                            elif word[2] == "ADJ" or globals.pos_map[word[2]] == "ADJ":
+                            elif pos == "ADJ":
                                 c_label_classif[synset2id['notseen-a']] = 1.0 / len(word[4])
-                            elif word[2] == "ADV" or globals.pos_map[word[2]] == "ADV":
+                            elif pos == "ADV":
                                 c_label_classif[synset2id['notseen-r']] = 1.0 / len(word[4])
                     c_labels_classif.append(c_label_classif)
                 if wsd_method == "context_embedding" or wsd_method == "multitask":
-                    for synset_id in word[4]:
+                    for synset in word[3]:
                         c_label_context = numpy.zeros([emb_dim], dtype=float)
-                        if synset_id < len(emb1_src2id):
-                            c_label_context += emb1_src2id[synset_id]
+                        if synset in emb1_src2id:
+                            c_label_context += embeddings1[emb1_src2id[synset]]
                     c_label_context = c_label_context / len(word[4])
                     c_labels_context.append(c_label_context)
                 c_synsets.append(word[3])
@@ -111,7 +112,7 @@ def format_data (data, emb1_src2id, emb1_input, emb1_case, synset2id, max_seq_le
                     c_pos_filters.append(globals.pos_map[word[2]])
                 indices.append(counter)
             if pos_classifier is True:
-                c_pos_label = copy(zero_pos_label)
+                c_pos_label = copy.copy(zero_pos_label)
                 c_pos_label[pos_types[word[2]]] = 1
                 c_labels_pos.append(c_pos_label)
             counter += 1

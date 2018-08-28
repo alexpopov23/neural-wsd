@@ -30,7 +30,7 @@ def get_wordnet_lexicon(lexicon_path):
     return lemma2synsets
 
 
-def get_lemma_synset_maps(wsd_method, lemma2synsets, known_lemmas, lemma2id, synset2id, syn_id_mapping):
+def get_lemma_synset_maps(wsd_method, lemma2synsets, known_lemmas, lemma2id, synset2id):
     """Constructs mappings between lemmas and integer IDs, synsets and integerIDs
 
     Args:
@@ -40,26 +40,18 @@ def get_lemma_synset_maps(wsd_method, lemma2synsets, known_lemmas, lemma2id, syn
         lemma2id: A dictionary, mapping lemmas to integer IDs (empty)
         known_lemmas: A set of lemmas seen in the training data
         synset2id: A dictionary, mapping synsets to integer IDs (empty)
-        syn_id_mapping: A dictionary, maps synsets of lemmas seen in training to all possible synsets
-                       (for multitask training; empty)
 
     Returns:
         lemma2id: A dictionary, mapping lemmas to integer IDs
         known_lemmas: A set of lemmas seen in the training data
         synset2id: A dictionary, mapping synsets to integer IDs
-        syn_id_mapping: A dictionary, maps synsets of lemmas seen in training to all possible synsets
-                       (for multitask training)
-
     """
-    index_l, index_s, index_s_map = 0, 0, 0
+    index_l, index_s = 0, 0
     if wsd_method == "classification" or wsd_method == "multitask":
         synset2id['notseen-n'], synset2id['notseen-v'], synset2id['notseen-a'], synset2id['notseen-r'] = 0, 1, 2, 3
-        if wsd_method == "multitask":
-            syn_id_mapping.update({0: 0, 1: 1, 2: 2, 3: 3})
         index_s = 4
-        index_s_map = 4
     for lemma, synsets in lemma2synsets.iteritems():
-        if wsd_method == "classification" and lemma not in known_lemmas:
+        if (wsd_method == "classification" or wsd_method == "multitask") and lemma not in known_lemmas:
             continue
         lemma2id[lemma] = index_l
         index_l += 1
@@ -67,13 +59,7 @@ def get_lemma_synset_maps(wsd_method, lemma2synsets, known_lemmas, lemma2id, syn
             if synset not in synset2id:
                 synset2id[synset] = index_s
                 index_s += 1
-            if wsd_method == "multitask" and lemma in known_lemmas:
-                indx_to_map = synset2id[synset]
-                if indx_to_map in syn_id_mapping:
-                    continue
-                syn_id_mapping[indx_to_map] = index_s_map
-                index_s_map += 1
-    return lemma2id, synset2id, syn_id_mapping
+    return lemma2id, synset2id
 
 
 def add_synset_ids(wsd_method, data, known_lemmas, synset2id):
@@ -205,21 +191,19 @@ def read_data_naf(path, lemma2synsets, lemma2id={}, known_lemmas=set(), synset2i
         known_lemmas: A set, all lemmas seen in training
         pos_types: A dictionary, all POS tags seen in training and their mappings to integer IDs
         synset2id: A dictionary, mapping synsets to integer IDs
-        syn_id_mapping: A dictionary, maps synsets of lemmas seen in training to all possible synsets
-                       (for multitask training)
     """
     data = []
-    syn_id_mapping = {}
     pos_types = {}
     for f in os.listdir(path):
         new_data, new_lemmas = read_naf_file(os.path.join(path, f), pos_tagset, pos_types)
         known_lemmas.update(new_lemmas)
         data.extend(new_data)
+    pos_types["."] = len(pos_types)
     if mode == "train":
-        lemma2id, synset2id, syn_id_mapping = get_lemma_synset_maps(wsd_method, lemma2synsets, known_lemmas, lemma2id,
-                                                                    synset2id, syn_id_mapping)
+        lemma2id, synset2id = get_lemma_synset_maps(wsd_method, lemma2synsets, known_lemmas, lemma2id,
+                                                                    synset2id)
     data = add_synset_ids(wsd_method, data, known_lemmas, synset2id)
-    return data, lemma2id, known_lemmas, pos_types, synset2id, syn_id_mapping
+    return data, lemma2id, known_lemmas, pos_types, synset2id
 
 
 def read_data_uef(path, sensekey2synset, lemma2synsets, lemma2id={}, known_lemmas=set(), synset2id={},
@@ -243,11 +227,8 @@ def read_data_uef(path, sensekey2synset, lemma2synsets, lemma2id={}, known_lemma
         known_lemmas: A set, all lemmas seen in training
         pos_types: A dictionary, all POS tags seen in training and their mappings to integer IDs
         synset2id: A dictionary, mapping synsets to integer IDs
-        syn_id_mapping: A dictionary, maps synsets of lemmas seen in training to all possible synsets
-                       (for multitask training)
     """
     data = []
-    syn_id_mapping = {}
     pos_types, pos_count = {}, 0
     path_data = ""
     path_keys = ""
@@ -289,7 +270,7 @@ def read_data_uef(path, sensekey2synset, lemma2synsets, lemma2id={}, known_lemma
                     current_sentence.append([wordform, lemma, pos, synsets])
                 data.append(current_sentence)
     if mode == "train":
-        lemma2id, synset2id, syn_id_mapping = get_lemma_synset_maps(wsd_method, lemma2synsets, known_lemmas, lemma2id,
-                                                                    synset2id, syn_id_mapping)
+        lemma2id, synset2id = get_lemma_synset_maps(wsd_method, lemma2synsets, known_lemmas, lemma2id,
+                                                                    synset2id)
     data = add_synset_ids(wsd_method, data, known_lemmas, synset2id)
-    return data, lemma2id, known_lemmas, pos_types, synset2id, syn_id_mapping
+    return data, lemma2id, known_lemmas, pos_types, synset2id

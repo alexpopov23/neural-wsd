@@ -1,6 +1,7 @@
 import argparse
 import pickle
 
+import architectures
 import format_data
 import load_embeddings
 import misc
@@ -65,6 +66,8 @@ if __name__ == "__main__":
                         help="Specifies the format of the training corpus. Options: naf, uef")
     parser.add_argument('-training_iterations', dest='training_iterations', required=False, default=100000,
                         help='How many iterations the network should train for.')
+    parser.add_argument('-wsd_classifier', dest='wsd_classifier', required=True,
+                        help='Should the system perform WSD?')
     parser.add_argument('-wsd_method', dest='wsd_method', required=True,
                         help='Which method for WSD? Options: classification, context_embedding, multitask')
     # parser.add_argument('-synset_mapping', dest='synset_mapping', required=False,
@@ -78,17 +81,16 @@ if __name__ == "__main__":
     batch_size = int(args.batch_size)
     embeddings1_path = args.embeddings1_path
     embeddings1_case = args.embeddings1_case
-    embeddings1_dim = args.embeddings1_dim
+    embeddings1_dim = int(args.embeddings1_dim)
     embeddings1_input = args.embeddings1_input
     embeddings2_path = args.embeddings2_path
-    if embeddings2_path is not None:
-        embeddings2_case = args.embeddings2_case
-        embeddings2_dim = args.embeddings2_dim
-        embeddings2_input = args.embeddings2_input
+    embeddings2_case = args.embeddings2_case
+    embeddings2_dim = int(args.embeddings2_dim)
+    embeddings2_input = args.embeddings2_input
     keep_prob = float(args.keep_prob)
     learning_rate = float(args.learning_rate)
     lexicon_path = args.lexicon_path
-    max_seq_length = args.max_seq_length
+    max_seq_length = int(args.max_seq_length)
     mode = args.mode
     n_hidden = int(args.n_hidden)
     n_hidden_layers = int(args.n_hidden_layers)
@@ -101,30 +103,33 @@ if __name__ == "__main__":
     train_data_path = args.train_data
     train_data_format = args.train_data_format
     training_iterations = args.training_iterations
+    wsd_classifier = misc.str2bool(args.wsd_classifier)
     wsd_method = args.wsd_method
 
     ''' Load the embedding model(s) that will be used '''
     embeddings1, emb1_src2id, emb1_id2src = load_embeddings.load(embeddings1_path)
     if embeddings2_path is not None:
         embeddings2, emb2_src2id, emb2_id2src = load_embeddings.load(embeddings2_path)
+    else:
+        embeddings2, emb2_src2id, emb2_src2id = None, None, None
 
     ''' Read data and auxiliary resource according to specified formats'''
     if train_data_format == "uef" or test_data_format == "uef":
         sensekey2synset = pickle.load(open(sensekey2synset_path, "rb"))
     lemma2synsets = read_data.get_wordnet_lexicon(lexicon_path)
     if train_data_format == "naf":
-        train_data, lemma2id, known_lemmas, pos_types, synset2id, syn_id_mapping = \
+        train_data, lemma2id, known_lemmas, pos_types, synset2id = \
             read_data.read_data_naf(train_data_path, lemma2synsets, mode=mode, wsd_method=wsd_method,
                                     pos_tagset=pos_tagset)
     elif train_data_format == "uef":
-        train_data, lemma2id, known_lemmas, pos_types, synset2id, syn_id_mapping = \
+        train_data, lemma2id, known_lemmas, pos_types, synset2id = \
             read_data.read_data_uef(train_data_path, sensekey2synset, lemma2synsets, mode=mode, wsd_method=wsd_method)
     if test_data_format == "naf":
-        test_data, _, _, _, _, syn_id_mapping = \
+        test_data, _, _, _, _ = \
             read_data.read_data_naf(test_data_path, lemma2synsets,  lemma2id=lemma2id, known_lemmas=known_lemmas,
                                     synset2id=synset2id, mode=mode, wsd_method=wsd_method, pos_tagset=pos_tagset)
     elif test_data_format == "uef":
-        test_data, _, _, _, _, syn_id_mapping = \
+        test_data, _, _, _, _ = \
             read_data.read_data_uef(test_data_path, sensekey2synset, lemma2synsets, lemma2id=lemma2id,
                                     known_lemmas=known_lemmas, synset2id=synset2id, mode=mode, wsd_method=wsd_method)
 
@@ -132,9 +137,32 @@ if __name__ == "__main__":
     test_inputs1, test_inputs2, test_sequence_lengths, test_labels_classif, test_labels_context, test_labels_pos, \
     test_indices, test_synsets_gold, test_pos_filters = \
         format_data.format_data(test_data, emb1_src2id, embeddings1_input, embeddings1_case, synset2id, max_seq_length,
-                                emb2_src2id, embeddings2_input, embeddings2_case, embeddings1_dim, syn_id_mapping,
+                                embeddings1, emb2_src2id, embeddings2_input, embeddings2_case, embeddings1_dim,
                                 pos_types, pos_classifier, wsd_method)
-    # TODO format test data
+
+    ''' Initialize the neural model'''
+    model = None
+    if wsd_method == "classifier":
+        model = architectures.classifier.ClassifierSoftmax()
+
+    if wsd_method == "similarity":
+        model = ModelVectorSimilarity(word_embedding_input, output_embedding_dim, lemma_embedding_dim, vocab_size_lemmas,
+                                      batch_size, seq_width, n_hidden, val_inputs, val_seq_lengths,
+                                      val_words_to_disambiguate, val_indices, val_labels, word_embedding_dim, vocab_size)
+    elif wsd_method == "fullsoftmax":
+        model = ModelSingleSoftmax(synset2id, word_embedding_dim, vocab_size, batch_size, seq_width, n_hidden,
+                                   n_hidden_layers, val_inputs, val_input_lemmas, val_seq_lengths, val_words_to_disambiguate,
+                                   val_indices, val_labels, lemma_embedding_dim, len(src2id_lemmas))
+    elif wsd_method == "multitask":
+        if word_embedding_input == "wordform":
+            output_embedding_dim = word_embedding_dim
+        else:
+            output_embedding_dim = lemma_embedding_dim
+        model = ModelMultiTaskLearning(word_embedding_input, synID_mapping, output_embedding_dim, lemma_embedding_dim,
+                                       vocab_size_lemmas, batch_size, seq_width, n_hidden, val_inputs, val_seq_lengths,
+                                       val_words_to_disambiguate, val_indices, val_labels[0], val_labels[1],
+                                       word_embedding_dim, vocab_size)
+
     # TODO initialize model
     # TODO eval or train model
 

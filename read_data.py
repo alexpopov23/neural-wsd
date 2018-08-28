@@ -212,7 +212,7 @@ def read_data_naf(path, lemma2synsets, lemma2id={}, known_lemmas=set(), synset2i
     syn_id_mapping = {}
     pos_types = {}
     for f in os.listdir(path):
-        new_data, new_lemmas, new_pos = read_naf_file(os.path.join(path, f), pos_tagset, pos_types)
+        new_data, new_lemmas = read_naf_file(os.path.join(path, f), pos_tagset, pos_types)
         known_lemmas.update(new_lemmas)
         data.extend(new_data)
     if mode == "train":

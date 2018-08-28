@@ -1,7 +1,9 @@
 import argparse
 import pickle
 
+import format_data
 import load_embeddings
+import misc
 import read_data
 
 
@@ -37,20 +39,22 @@ if __name__ == "__main__":
                         help='How fast the network should learn.')
     parser.add_argument('-lexicon_path', dest='lexicon_path', required=False,
                         help='The path to the location of the lexicon file.')
+    parser.add_argument('-max_seq_length', dest='max_seq_length', required=False, default=63,
+                        help='Maximum length of a sentence to be passed to the network (the rest is cut off).')
     parser.add_argument("-mode", dest="mode", required=False, default="train",
                         help="Is this is a training, evaluation or application run? Options: train, evaluate, application")
     parser.add_argument('-n_hidden', dest='n_hidden', required=False, default=200,
                         help='Size of the hidden layer.')
     parser.add_argument('-n_hidden_layers', dest='n_hidden_layers', required=False, default=1,
                         help='Number of the hidden LSTMs in the forward/backward modules.')
+    parser.add_argument('-pos_classifier', dest='pos_classifier', required=False, default="False",
+                        help='Should the system also perform POS tagging? Available only with classification.')
     parser.add_argument('-pos_tagset', dest='pos_tagset', required=False, default="coarsegrained",
                         help='Whether the POS tags should be converted. Options are: coarsegrained, finegrained')
     parser.add_argument('-save_path', dest='save_path', required=False,
                         help='Path to where the model should be saved.')
     parser.add_argument('-sensekey2synset_path', dest='sensekey2synset_path', required=False,
                         help='Path to mapping between sense annotations in the corpus and synset IDs in WordNet.')
-    parser.add_argument('-sequence_width', dest='sequence_width', required=False, default=63,
-                        help='Maximum length of a sentence to be passed to the network (the rest is cut off).')
     parser.add_argument('-test_data_path', dest='test_data', required=False,
                         help='The path to the gold corpus used for testing.')
     parser.add_argument("-test_data_format", dest="test_data_format", required=False,
@@ -84,13 +88,14 @@ if __name__ == "__main__":
     keep_prob = float(args.keep_prob)
     learning_rate = float(args.learning_rate)
     lexicon_path = args.lexicon_path
+    max_seq_length = args.max_seq_length
     mode = args.mode
     n_hidden = int(args.n_hidden)
     n_hidden_layers = int(args.n_hidden_layers)
+    pos_classifier = misc.str2bool(args.pos_classifier)
     pos_tagset = args.pos_tagset
     save_path = args.save_path
     sensekey2synset_path = args.sensekey2synset_path
-    sequence_width = args.sequence_width
     test_data_path = args.test_data
     test_data_format = args.test_data_format
     train_data_path = args.train_data
@@ -108,11 +113,11 @@ if __name__ == "__main__":
         sensekey2synset = pickle.load(open(sensekey2synset_path, "rb"))
     lemma2synsets = read_data.get_wordnet_lexicon(lexicon_path)
     if train_data_format == "naf":
-        train_data, lemma2id, known_lemmas, known_pos, synset2id, syn_id_mapping = \
+        train_data, lemma2id, known_lemmas, pos_types, synset2id, syn_id_mapping = \
             read_data.read_data_naf(train_data_path, lemma2synsets, mode=mode, wsd_method=wsd_method,
                                     pos_tagset=pos_tagset)
     elif train_data_format == "uef":
-        train_data, lemma2id, known_lemmas, known_pos, synset2id, syn_id_mapping = \
+        train_data, lemma2id, known_lemmas, pos_types, synset2id, syn_id_mapping = \
             read_data.read_data_uef(train_data_path, sensekey2synset, lemma2synsets, mode=mode, wsd_method=wsd_method)
     if test_data_format == "naf":
         test_data, _, _, _, _, syn_id_mapping = \
@@ -124,11 +129,11 @@ if __name__ == "__main__":
                                     known_lemmas=known_lemmas, synset2id=synset2id, mode=mode, wsd_method=wsd_method)
 
     ''' Transform the test data into the input format readable by the neural models'''
-    # val_inputs, val_input_lemmas, val_seq_lengths, val_labels, val_words_to_disambiguate, \
-    # val_indices, val_lemmas_to_disambiguate, val_synsets_gold, val_pos_filters = data_ops.format_data\
-    #                                                 (wsd_method, val_data, src2id, src2id_lemmas, synset2id,
-    #                                                  synID_mapping, seq_width, word_embedding_case, word_embedding_input,
-    #                                                  sense_embeddings, 0, lemma_embedding_dim, "evaluation", use_pos=use_pos)
+    test_inputs1, test_inputs2, test_sequence_lengths, test_labels_classif, test_labels_context, test_labels_pos, \
+    test_indices, test_synsets_gold, test_pos_filters = \
+        format_data.format_data(test_data, emb1_src2id, embeddings1_input, embeddings1_case, synset2id, max_seq_length,
+                                emb2_src2id, embeddings2_input, embeddings2_case, embeddings1_dim, syn_id_mapping,
+                                pos_types, pos_classifier, wsd_method)
     # TODO format test data
     # TODO initialize model
     # TODO eval or train model

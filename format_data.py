@@ -83,8 +83,10 @@ def format_data (data, emb1_src2id, emb1_input, emb1_case, synset2id, max_seq_le
                 if wsd_method == "classifer" or wsd_method == "multitask":
                     c_label_classif = numpy.zeros(len(syn_id_mapping), dtype=float)
                     for synset_id in word[4]:
-                        if syn_id_mapping is None or synset_id in syn_id_mapping:
+                        if syn_id_mapping is None:
                             c_label_classif[synset_id] = 1.0/len(word[4])
+                        elif synset_id in syn_id_mapping:
+                            c_label_classif[syn_id_mapping[synset_id]] = 1.0/len(word[4])
                         else:
                             if word[2] == "NOUN" or globals.pos_map[word[2]] == "NOUN":
                                 c_label_classif[synset2id['notseen-n']] = 1.0 / len(word[4])

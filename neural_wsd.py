@@ -24,12 +24,8 @@ if __name__ == "__main__":
                         help='Are the embeddings trained on lowercased or mixedcased text? Options: lowercase, mixedcase')
     parser.add_argument('-embeddings1_dim', dest='embeddings1_dim', required=False, default=300,
                         help='Size of the primary embeddings.')
-    parser.add_argument('-embeddings2_dim', dest='embeddings2_dim', required=False, default=300,
+    parser.add_argument('-embeddings2_dim', dest='embeddings2_dim', required=False, default=0,
                         help='Size of the additional embeddings.')
-    # parser.add_argument('-embeddings1_format', dest='embeddings1_format', required=False, default="gensim",
-    #                     help='Which method is used for loading the pretrained embeddings? Options: gensim, glove?')
-    # parser.add_argument('-embeddings2_format', dest='embeddings2_format', required=False, default="gensim",
-    #                     help='Which method is used for loading the additional pretrained embeddings? Options: gensim, glove?')
     parser.add_argument('-embeddings1_input', dest='embeddings1_input', required=False, default="wordform",
                         help='Are these embeddings of wordforms or lemmas? Options are: wordform, lemma')
     parser.add_argument('-embeddings2_input', dest='embeddings2_input', required=False, default="lemma",
@@ -70,11 +66,6 @@ if __name__ == "__main__":
                         help='Should the system perform WSD?')
     parser.add_argument('-wsd_method', dest='wsd_method', required=True,
                         help='Which method for WSD? Options: classification, context_embedding, multitask')
-    # parser.add_argument('-synset_mapping', dest='synset_mapping', required=False,
-    #                     help='A mapping between the synset embedding IDs and WordNet, if such is necessary.')
-    # parser.add_argument('-lexicon_mode', dest='lexicon_mode', required=False, default="full_dictionary",
-    #                     help='Whether to use a lexicon or only the senses attested in the corpora: *full_dictionary* or *attested_senses*.')
-
 
     ''' Get the parameters of the model from the command line '''
     args = parser.parse_args()
@@ -111,7 +102,7 @@ if __name__ == "__main__":
     if embeddings2_path is not None:
         embeddings2, emb2_src2id, emb2_id2src = load_embeddings.load(embeddings2_path)
     else:
-        embeddings2, emb2_src2id, emb2_src2id = None, None, None
+        embeddings2, emb2_src2id, emb2_id2src = [], None, None
 
     ''' Read data and auxiliary resource according to specified formats'''
     if train_data_format == "uef" or test_data_format == "uef":
@@ -142,28 +133,25 @@ if __name__ == "__main__":
 
     ''' Initialize the neural model'''
     model = None
-    if wsd_method == "classifier":
-        model = architectures.classifier.ClassifierSoftmax()
-
-    if wsd_method == "similarity":
-        model = ModelVectorSimilarity(word_embedding_input, output_embedding_dim, lemma_embedding_dim, vocab_size_lemmas,
-                                      batch_size, seq_width, n_hidden, val_inputs, val_seq_lengths,
-                                      val_words_to_disambiguate, val_indices, val_labels, word_embedding_dim, vocab_size)
-    elif wsd_method == "fullsoftmax":
-        model = ModelSingleSoftmax(synset2id, word_embedding_dim, vocab_size, batch_size, seq_width, n_hidden,
-                                   n_hidden_layers, val_inputs, val_input_lemmas, val_seq_lengths, val_words_to_disambiguate,
-                                   val_indices, val_labels, lemma_embedding_dim, len(src2id_lemmas))
+    if wsd_method == "classification":
+        model = architectures.classifier.ClassifierSoftmax\
+            (len(synset2id), len(embeddings1), embeddings1_dim, len(embeddings2), embeddings2_dim, batch_size,
+             max_seq_length, n_hidden, n_hidden_layers, learning_rate, keep_prob, test_inputs1, test_inputs2,
+             test_sequence_lengths, test_indices, test_labels_classif, wsd_classifier, pos_classifier, len(pos_types),
+             test_labels_pos)
+    elif wsd_method == "context_embedding":
+        model = architectures.classifier.ContextEmbedder\
+            (len(synset2id), len(embeddings1), embeddings1_dim, len(embeddings2), embeddings2_dim, batch_size,
+             max_seq_length, n_hidden, n_hidden_layers, learning_rate, keep_prob, test_inputs1, test_inputs2,
+             test_sequence_lengths, test_indices, test_labels_classif, wsd_classifier, pos_classifier, len(pos_types),
+             test_labels_pos)
     elif wsd_method == "multitask":
-        if word_embedding_input == "wordform":
-            output_embedding_dim = word_embedding_dim
-        else:
-            output_embedding_dim = lemma_embedding_dim
-        model = ModelMultiTaskLearning(word_embedding_input, synID_mapping, output_embedding_dim, lemma_embedding_dim,
-                                       vocab_size_lemmas, batch_size, seq_width, n_hidden, val_inputs, val_seq_lengths,
-                                       val_words_to_disambiguate, val_indices, val_labels[0], val_labels[1],
-                                       word_embedding_dim, vocab_size)
+        model = architectures.classifier.MultitaskWSD\
+            (len(synset2id), len(embeddings1), embeddings1_dim, len(embeddings2), embeddings2_dim, batch_size,
+             max_seq_length, n_hidden, n_hidden_layers, learning_rate, keep_prob, test_inputs1, test_inputs2,
+             test_sequence_lengths, test_indices, test_labels_classif, test_labels_context, wsd_classifier,
+             pos_classifier, len(pos_types), test_labels_pos)
 
-    # TODO initialize model
     # TODO eval or train model
 
     print "This is the end."

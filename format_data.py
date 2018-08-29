@@ -32,7 +32,7 @@ def get_embedding_id(word, input, case, src2id):
 
 def format_data (data, emb1_src2id, emb1_input, emb1_case, synset2id, max_seq_length, embeddings1=None,
                  emb2_src2id=None, emb2_input=None, emb2_case=None, emb_dim=None,
-                 pos_types=None, pos_classifier=False, wsd_method="classifier"):
+                 pos_types=None, pos_classifier=False, wsd_method="classification"):
     """Takes a training/test corpus and transforms it to be readable by the neural models
 
     Args:
@@ -79,7 +79,7 @@ def format_data (data, emb1_src2id, emb1_input, emb1_case, synset2id, max_seq_le
                 c_input2.append(get_embedding_id(word, emb2_input, emb2_case, emb2_src2id))
             # Obtain the synset gold labels / embeddings
             if (word[4][0] > -1):
-                if wsd_method == "classifer" or wsd_method == "multitask":
+                if wsd_method == "classification" or wsd_method == "multitask":
                     c_label_classif = numpy.zeros(len(synset2id), dtype=float)
                     for synset_id in word[4]:
                         if synset_id < len(synset2id):
@@ -129,7 +129,7 @@ def format_data (data, emb1_src2id, emb1_input, emb1_case, synset2id, max_seq_le
         if pos_classifier is True:
             c_labels_pos += padding_size * [zero_pos_label]
             labels_pos.extend(c_labels_pos)
-        if wsd_method == "classifier" or wsd_method == "multitask":
+        if wsd_method == "classification" or wsd_method == "multitask":
             labels_classif.extend(c_labels_classif)
         if wsd_method == "context_embedding" or wsd_method == "multitask":
             labels_context.extend(c_labels_context)

@@ -146,3 +146,25 @@ def format_data (data, emb1_src2id, emb1_input, emb1_case, synset2id, max_seq_le
     indices = numpy.asarray(indices)
     return inputs1, inputs2, sequence_lengths, labels_classif, labels_context, labels_pos, indices, synsets_gold, \
            pos_filters
+
+
+def new_batch(offset, batch_size, data, emb1_src2id, embeddings1_input, embeddings1_case, synset2id, max_seq_length,
+              embeddings1, emb2_src2id, embeddings2_input, embeddings2_case, embeddings1_dim, pos_types, pos_classifier,
+              wsd_method):
+    """Create a new batch from the training data. See format_data() for most arguments
+
+    Additional args:
+        offset: An int, the position where the new batch should be extracted from the training data
+        batch_size: An int, the size of the new batch
+
+    Returns:
+        see format_data()
+
+    """
+    batch = data[offset:(offset + batch_size)]
+    inputs1, inputs2, sequence_lengths, labels_classif, labels_context, labels_pos, indices, synsets_gold, pos_filters =\
+        format_data(wsd_method, batch, emb1_src2id, emb2_src2id, embeddings1_input, embeddings1_case, synset2id,
+                    max_seq_length, embeddings1, emb2_src2id, embeddings2_input, embeddings2_case, embeddings1_dim,
+                    pos_types, pos_classifier, wsd_method)
+    return inputs1, inputs2, sequence_lengths, labels_classif, labels_context, labels_pos, indices, synsets_gold, \
+           pos_filters

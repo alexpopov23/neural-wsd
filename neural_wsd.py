@@ -1,13 +1,13 @@
 import argparse
+import os
 import pickle
 
 import tensorflow as tf
 
 import architectures
-import format_data
-import load_embeddings
 import misc
-import read_data
+
+from data_ops import format_data, read_data, load_embeddings
 
 
 if __name__ == "__main__":
@@ -119,7 +119,7 @@ if __name__ == "__main__":
             read_data.read_data_uef(train_data_path, sensekey2synset, lemma2synsets, mode=mode, wsd_method=wsd_method)
     if test_data_format == "naf":
         test_data, _, _, _, _ = \
-            read_data.read_data_naf(test_data_path, lemma2synsets,  lemma2id=lemma2id, known_lemmas=known_lemmas,
+            read_data.read_data_naf(test_data_path, lemma2synsets, lemma2id=lemma2id, known_lemmas=known_lemmas,
                                     synset2id=synset2id, mode=mode, wsd_method=wsd_method, pos_tagset=pos_tagset)
     elif test_data_format == "uef":
         test_data, _, _, _, _ = \
@@ -159,53 +159,36 @@ if __name__ == "__main__":
 
     # TODO eval or train model
     ''' Run training and/or evaluation'''
-
     session = tf.Session()
     saver = tf.train.Saver()
     if mode == "application":
         pass
     else:
         init = tf.initialize_all_variables()
-        if wsd_method == "similarity":
-            feed_dict = {model.place: val_labels}
-            if len(word_embeddings) > 0:
-                feed_dict.update({model.emb_placeholder: word_embeddings})
-            if len(lemma_embeddings) > 0:
-                feed_dict.update({model.emb_placeholder_lemmas: lemma_embeddings})
-            session.run(init, feed_dict=feed_dict)
-
-        elif wsd_method == "fullsoftmax":
-            feed_dict={model.emb_placeholder: word_embeddings, model.place: val_labels}
-            if len(lemma_embeddings) > 0:
-                session.run(init, feed_dict={model.emb_placeholder: word_embeddings, model.emb_placeholder_lemmas: lemma_embeddings,
-                                             model.place: val_labels})
-            else:
-                session.run(init, feed_dict={model.emb_placeholder: word_embeddings, model.place: val_labels})
-        elif wsd_method == "multitask":
-            feed_dict = {model.place_c : val_labels[0], model.place_r : val_labels[1]}
-            if len(word_embeddings) > 0:
-                feed_dict.update({model.emb_placeholder: word_embeddings})
-            if len(lemma_embeddings) > 0:
-                feed_dict.update({model.emb_placeholder_lemmas: lemma_embeddings})
-            session.run(init, feed_dict=feed_dict)
-
-    #session.run(model.set_embeddings, feed_dict={model.emb_placeholder: word_embeddings})
-
+        feed_dict = {model.emb1_placeholder: embeddings1}
+        if len(embeddings2) > 0:
+            feed_dict.update({model.emb2_placeholder: embeddings2})
+        session.run(init, feed_dict=feed_dict)
     print "Start of training"
-    batch_loss = 0
-    best_accuracy = 0.0
-    if multitask == "True":
-        batch_loss_r = 0
-        best_accuracy_r = 0.0
     if not os.path.exists(args.save_path):
         os.makedirs(args.save_path)
     results = open(os.path.join(args.save_path, 'results.txt'), "a", 0)
     results.write(str(args) + '\n\n')
     model_path = os.path.join(args.save_path, "model")
-    for step in range(training_iters):
-        offset = (step * batch_size) % (len(data) - batch_size)
+
+    # batch_loss = 0
+    # best_accuracy = 0.0
+    # if multitask == "True":
+    #     batch_loss_r = 0
+    #     best_accuracy_r = 0.0
+
+    for step in range(training_iterations):
+        offset = (step * batch_size) % (len(train_data) - batch_size)
         inputs, input_lemmas, seq_lengths, labels, words_to_disambiguate, indices, lemmas_to_disambiguate, \
-        synsets_gold, pos_filters, pos_labels, hyp_labels, hyp_indices, freq_labels = new_batch(offset)
+        synsets_gold, pos_filters, pos_labels, hyp_labels, hyp_indices, freq_labels = \
+            format_data.new_batch(offset, batch_size, train_data, emb1_src2id, embeddings1_input, embeddings1_case,
+                                  synset2id, max_seq_length, embeddings1, emb2_src2id, embeddings2_input,
+                                  embeddings2_case, embeddings1_dim, pos_types, pos_classifier, wsd_method)
         if (len(labels) == 0):
             continue
         input_data = [inputs, input_lemmas, seq_lengths, labels, words_to_disambiguate, indices, pos_labels, hyp_labels,

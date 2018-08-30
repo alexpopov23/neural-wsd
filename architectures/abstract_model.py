@@ -57,11 +57,15 @@ class AbstractModel:
             self.biases_wsd = tf.get_variable(name="softmax_wsd-b", shape=[output_dim], dtype=tf.float32)
             self.train_labels_wsd = tf.placeholder(dtype=test_labels_wsd.dtype, shape=[None, output_dim])
             self.train_indices_wsd = tf.placeholder(dtype=tf.int32, shape=[None])
+            self.test_labels_wsd = tf.constant(test_labels_wsd, test_labels_wsd.dtype)
+            self.test_indices_wsd = tf.constant(test_indices_wsd, tf.int32)
         else:
             self.weights_wsd = None
             self.biases_wsd = None
             self.train_labels_wsd = None
             self.train_indices_wsd = None
+            self.test_indices_wsd = None
+            self.test_labels_wsd = None
         self.train_inputs1 = tf.placeholder(tf.int32, shape=[batch_size, max_seq_length])
         self.train_inputs2 = tf.placeholder(tf.int32, shape=[batch_size, max_seq_length])
         self.train_seq_lengths = tf.placeholder(tf.int32, shape=[batch_size])
@@ -79,8 +83,6 @@ class AbstractModel:
         if vocab_size2 > 0:
             self.test_inputs2 = tf.constant(test_inputs2, tf.int32)
         self.test_seq_lengths = tf.constant(test_seq_lengths, tf.int32)
-        self.test_labels_wsd = tf.constant(test_labels_wsd, test_labels_wsd.dtype)
-        self.test_indices_wsd = tf.constant(test_indices_wsd, tf.int32)
 
     def run_neural_model(self):
         """Runs the model: embeds the inputs, calculates recurrences and performs classification/regression"""

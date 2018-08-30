@@ -1,6 +1,8 @@
 import argparse
 import pickle
 
+import tensorflow as tf
+
 import architectures
 import format_data
 import load_embeddings
@@ -134,24 +136,181 @@ if __name__ == "__main__":
     ''' Initialize the neural model'''
     model = None
     if wsd_method == "classification":
+        output_dimension = len(synset2id)
         model = architectures.classifier.ClassifierSoftmax\
-            (len(synset2id), len(embeddings1), embeddings1_dim, len(embeddings2), embeddings2_dim, batch_size,
+            (output_dimension, len(embeddings1), embeddings1_dim, len(embeddings2), embeddings2_dim, batch_size,
              max_seq_length, n_hidden, n_hidden_layers, learning_rate, keep_prob, test_inputs1, test_inputs2,
              test_sequence_lengths, test_indices, test_labels_classif, wsd_classifier, pos_classifier, len(pos_types),
              test_labels_pos)
     elif wsd_method == "context_embedding":
-        model = architectures.classifier.ContextEmbedder\
-            (len(synset2id), len(embeddings1), embeddings1_dim, len(embeddings2), embeddings2_dim, batch_size,
+        output_dimension = embeddings1_dim
+        model = architectures.context_embedding.ContextEmbedder\
+            (output_dimension, len(embeddings1), embeddings1_dim, len(embeddings2), embeddings2_dim, batch_size,
              max_seq_length, n_hidden, n_hidden_layers, learning_rate, keep_prob, test_inputs1, test_inputs2,
-             test_sequence_lengths, test_indices, test_labels_classif, wsd_classifier, pos_classifier, len(pos_types),
+             test_sequence_lengths, test_indices, test_labels_context, wsd_classifier, pos_classifier, len(pos_types),
              test_labels_pos)
     elif wsd_method == "multitask":
-        model = architectures.classifier.MultitaskWSD\
-            (len(synset2id), len(embeddings1), embeddings1_dim, len(embeddings2), embeddings2_dim, batch_size,
+        output_dimension = len(synset2id)
+        model = architectures.multitask_wsd.MultitaskWSD\
+            (output_dimension, len(embeddings1), embeddings1_dim, len(embeddings2), embeddings2_dim, batch_size,
              max_seq_length, n_hidden, n_hidden_layers, learning_rate, keep_prob, test_inputs1, test_inputs2,
              test_sequence_lengths, test_indices, test_labels_classif, test_labels_context, wsd_classifier,
              pos_classifier, len(pos_types), test_labels_pos)
 
     # TODO eval or train model
+    ''' Run training and/or evaluation'''
+
+    session = tf.Session()
+    saver = tf.train.Saver()
+    if mode == "application":
+        pass
+    else:
+        init = tf.initialize_all_variables()
+        if wsd_method == "similarity":
+            feed_dict = {model.place: val_labels}
+            if len(word_embeddings) > 0:
+                feed_dict.update({model.emb_placeholder: word_embeddings})
+            if len(lemma_embeddings) > 0:
+                feed_dict.update({model.emb_placeholder_lemmas: lemma_embeddings})
+            session.run(init, feed_dict=feed_dict)
+
+        elif wsd_method == "fullsoftmax":
+            feed_dict={model.emb_placeholder: word_embeddings, model.place: val_labels}
+            if len(lemma_embeddings) > 0:
+                session.run(init, feed_dict={model.emb_placeholder: word_embeddings, model.emb_placeholder_lemmas: lemma_embeddings,
+                                             model.place: val_labels})
+            else:
+                session.run(init, feed_dict={model.emb_placeholder: word_embeddings, model.place: val_labels})
+        elif wsd_method == "multitask":
+            feed_dict = {model.place_c : val_labels[0], model.place_r : val_labels[1]}
+            if len(word_embeddings) > 0:
+                feed_dict.update({model.emb_placeholder: word_embeddings})
+            if len(lemma_embeddings) > 0:
+                feed_dict.update({model.emb_placeholder_lemmas: lemma_embeddings})
+            session.run(init, feed_dict=feed_dict)
+
+    #session.run(model.set_embeddings, feed_dict={model.emb_placeholder: word_embeddings})
+
+    print "Start of training"
+    batch_loss = 0
+    best_accuracy = 0.0
+    if multitask == "True":
+        batch_loss_r = 0
+        best_accuracy_r = 0.0
+    if not os.path.exists(args.save_path):
+        os.makedirs(args.save_path)
+    results = open(os.path.join(args.save_path, 'results.txt'), "a", 0)
+    results.write(str(args) + '\n\n')
+    model_path = os.path.join(args.save_path, "model")
+    for step in range(training_iters):
+        offset = (step * batch_size) % (len(data) - batch_size)
+        inputs, input_lemmas, seq_lengths, labels, words_to_disambiguate, indices, lemmas_to_disambiguate, \
+        synsets_gold, pos_filters, pos_labels, hyp_labels, hyp_indices, freq_labels = new_batch(offset)
+        if (len(labels) == 0):
+            continue
+        input_data = [inputs, input_lemmas, seq_lengths, labels, words_to_disambiguate, indices, pos_labels, hyp_labels,
+                      hyp_indices, freq_labels]
+        val_accuracy = 0.0
+        if (step % 100 == 0):
+            print "Step number " + str(step)
+            fetches = run_epoch(session, model, input_data, keep_prob, mode="val", multitask=multitask)
+            if (fetches[1] is not None):
+                batch_loss += fetches[1]
+            if multitask == "True" and fetches[2] is not None:
+                batch_loss_r += fetches[2]
+            results.write('EPOCH: %d' % step + '\n')
+            results.write('Averaged minibatch loss at step ' + str(step) + ': ' + str(batch_loss/100.0) + '\n')
+            if multitask == "True":
+                results.write('Averaged minibatch loss (similarity) at step ' + str(step) + ': ' + str(batch_loss_r / 100.0) + '\n')
+            if wsd_method == "similarity":
+                val_accuracy = accuracy_cosine_distance(fetches[3], val_lemmas_to_disambiguate, val_synsets_gold, val_pos_filters)
+                results.write('Minibatch accuracy: ' + str(accuracy_cosine_distance(fetches[2], lemmas_to_disambiguate,
+                                                                                    synsets_gold, pos_filters)) + '\n')
+                results.write('Validation accuracy: ' + str(val_accuracy) + '\n')
+                # Uncomment lines below in order to save the array with the modified word embeddings
+                # if val_accuracy > 55.0 and val_accuracy > best_accuracy:
+                #     with open(os.path.join(args.save_path, 'embeddings.pkl'), 'wb') as output:
+                #                 pickle.dump(fetches[-1], output, pickle.HIGHEST_PROTOCOL)
+                #     with open(os.path.join(args.save_path, 'src2id_lemmas.pkl'), 'wb') as output:
+                #         pickle.dump(src2id_lemmas, output, pickle.HIGHEST_PROTOCOL)
+            elif wsd_method == "fullsoftmax":
+                val_accuracy, val_accuracy_pos, val_accuracy_hyp, val_accuracy_freq = accuracy(fetches[3], val_lemmas_to_disambiguate, val_synsets_gold,
+                                                          val_pos_filters, synset2id, val_indices, pos_classifier=pos_classifier,
+                                                          wsd_classifier=wsd_classifier, logits_pos=fetches[5],
+                                                          labels_pos=val_pos_labels, hypernym_classifier=hypernym_classifier,
+                                                          logits_hyp=fetches[7], labels_hyp=val_labels_hyp, lemmas_hyp=val_lemmas_hyp,
+                                                          pos_filters_hyp=val_pos_filters_hyp)
+                results.write('Minibatch accuracy: ' + str(accuracy(fetches[2], lemmas_to_disambiguate, synsets_gold,
+                                                                    pos_filters, synset2id, indices, pos_classifier=pos_classifier,
+                                                                    wsd_classifier=wsd_classifier, logits_pos=fetches[4],
+                                                                    labels_pos=pos_labels)[0])
+                              + '\n')
+                results.write('Validation accuracy: ' + str(val_accuracy) + '\n')
+            elif wsd_method == "multitask":
+                val_accuracy, _, _, val_accuracy_freq = accuracy(fetches[3], val_lemmas_to_disambiguate, val_synsets_gold, val_pos_filters,
+                                        synset2id, synID_mapping, freq_classifier=freq_classifier, logits_freq=fetches[8], labels_freq=val_freq_labels)
+                results.write('Minibatch classification accuracy: ' +
+                              str(accuracy(fetches[3], lemmas_to_disambiguate, synsets_gold, pos_filters,
+                                           synset2id, synID_mapping)[0]) + '\n')
+                results.write('Validation classification accuracy: ' + str(val_accuracy) + '\n')
+                val_accuracy_r = accuracy_cosine_distance(fetches[6], val_lemmas_to_disambiguate, val_synsets_gold,
+                                                          val_pos_filters)
+                results.write('Minibatch regression accuracy: ' +
+                              str(accuracy_cosine_distance(fetches[5], lemmas_to_disambiguate, synsets_gold,
+                                                           pos_filters)) + '\n')
+                results.write('Validation regression accuracy: ' + str(val_accuracy_r) + '\n')
+
+                # ops = [model.train_op, model.cost_c, model.cost_r, model.logits, model.val_logits,
+                #        model.output_emb, model.val_output_emb]
+            print "Validation accuracy: " + str(val_accuracy)
+            if freq_classifier == "True":
+                print "Validation accuracy for frequency classification is: " + str(val_accuracy_freq)
+            if pos_classifier == "True":
+                print "Validation accuracy for POS: " + str(val_accuracy_pos)
+                results.write('Validation accuracy for POS: ' + str(val_accuracy_pos) + '\n')
+            if hypernym_classifier == "True":
+                print "Validation accuracy for hypernyms: " + str(val_accuracy_hyp)
+                results.write('Validation accuracy for hypernyms: ' + str(val_accuracy_hyp) + '\n')
+            batch_loss = 0.0
+            if wsd_method == "multitask":
+                batch_loss_r = 0.0
+        else:
+            fetches = run_epoch(session, model, input_data, keep_prob, mode="train", multitask=multitask)
+            if (fetches[1] is not None):
+                batch_loss += fetches[1]
+            if multitask == "True" and fetches[2] is not None:
+                batch_loss_r += fetches[2]
+
+        if val_accuracy > best_accuracy:
+            best_accuracy = val_accuracy
+            if pos_classifier == "True" and wsd_classifier == "True":
+                val_accuracy_gold_pos, _, _, _ = accuracy(fetches[3], val_lemmas_to_disambiguate, val_synsets_gold,
+                                                          val_pos_filters, synset2id, val_indices,
+                                                          pos_classifier=pos_classifier, use_gold_pos="True",
+                                                          logits_pos=fetches[5], labels_pos=val_pos_labels)
+                results.write('Validation classification accuracy with gold POS: ' + str(val_accuracy_gold_pos) + '\n')
+
+        if multitask == "True" and val_accuracy_r > best_accuracy_r:
+            best_accurary_r = val_accuracy_r
+
+
+        if (args.save_path != "None" and step == 25000 or step > 25000 and val_accuracy == best_accuracy):
+            for file in os.listdir(model_path):
+                os.remove(os.path.join(model_path, file))
+            saver.save(session, os.path.join(args.save_path, "model/model.ckpt"), global_step=step)
+            if (step == 25000):
+                with open(os.path.join(args.save_path, 'lemma2synsets.pkl'), 'wb') as output:
+                    pickle.dump(lemma2synsets, output, pickle.HIGHEST_PROTOCOL)
+                with open(os.path.join(args.save_path, 'lemma2id.pkl'), 'wb') as output:
+                    pickle.dump(lemma2id, output, pickle.HIGHEST_PROTOCOL)
+                with open(os.path.join(args.save_path, 'synset2id.pkl'), 'wb') as output:
+                    pickle.dump(synset2id, output, pickle.HIGHEST_PROTOCOL)
+                with open(os.path.join(args.save_path, 'id2synset.pkl'), 'wb') as output:
+                    pickle.dump(id2synset, output, pickle.HIGHEST_PROTOCOL)
+
+    results.write('\n\n\n' + 'Best result is: ' + str(best_accuracy))
+    if multitask == "True":
+        results.write('\n\n\n' + 'Best result (similarity) is: ' + str(best_accuracy_r))
+    results.close()
 
     print "This is the end."

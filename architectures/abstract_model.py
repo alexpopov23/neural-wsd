@@ -2,11 +2,37 @@ import tensorflow as tf
 
 
 class AbstractModel:
+    """The basis for the neural models, provides the common input, embedding and RNN layers"""
 
     def __init__(self, output_dim, vocab_size1, emb1_dim, vocab_size2, emb2_dim, batch_size, max_seq_length, n_hidden,
                  n_hidden_layers, learning_rate, keep_prob, test_inputs1, test_inputs2, test_seq_lengths,
                  test_indices_wsd, test_labels_wsd, wsd_classifier=True, pos_classifier=False, pos_classes=0,
                  test_labels_pos=None):
+        """Initializes the model
+
+        Args:
+            output_dim: An int, this is the size of the output layer, on which classification/regression is computed
+            vocab_size1: An int, the number of words in the primary vector space model (VSM)
+            emb1_dim: An int, the dimensionality of the vectors in the primary VSM
+            vocab_size2: An int, the number of words in the secondary VSM, if one is provided
+            emb2_dim: An int, the dimensionality of the vectors in the secondary VSM
+            batch_size: An int, the size of the training mini-batches
+            max_seq_length: The maximum length of the data sequences (used in LSTM to save computational resources)
+            n_hidden: An int, the size of the individual layers in the LSTMs
+            n_hidden_layers: An int, the depth of the Bi-LSTM layer
+            learning_rate: A float, the rate of learning
+            keep_prob: A float, the probability of keeping the activity of a neuron (dropout)
+            test_inputs1: An array of ints, the embedding IDs for each word in the test sentences
+            test_inputs2: An array of ints, (optional) auxiliary embedding IDs for each word in the test sentences
+            test_seq_lengths: An array of ints, indicates the length of each sentence in the test data
+            test_indices_wsd: An array of ints, indicates which words in the test data are to be disambiguated
+            test_labels_wsd: An array, provides the gold data against which the model can be compared
+            wsd_classifier: A bool, indicates whether WSD should be learned by the model
+            pos_classifier: A bool, indicates whether POS tagging should be learned by the model
+            pos_classes: An int, the number of POS classes found in the training data
+            test_labels_pos: An array, the gold testing data for the POS task
+
+        """
         self.vocab_size1 = vocab_size1
         self.vocab_size2 = vocab_size2
         self.emb1_dim = emb1_dim
@@ -57,7 +83,7 @@ class AbstractModel:
         self.test_indices_wsd = tf.constant(test_indices_wsd, tf.int32)
 
     def run_neural_model(self):
-        # if two sets of embeddings are passed, then concatenate them together
+        """Runs the model: embeds the inputs, calculates recurrences and performs classification/regression"""
         if self.vocab_size2 > 0:
             embedded_inputs = self.embed_inputs(self.train_inputs1, self.train_inputs2)
         else:
@@ -79,6 +105,18 @@ class AbstractModel:
 
 
     def embed_inputs(self, inputs1, inputs2=None):
+        """Takes one or two input sequences (of integer IDs) and embeds them in the resepective VSMs.
+
+        If two models are used, the embeddings from the separate VSMs are concatenated in single vectors.
+
+        Args:
+            inputs1: An array of integer IDs (primary VSM)
+            inputs2: An array of integer IDs (secondary VSM)
+
+        Returns:
+            embedded_inputs: An array of floats, the embedding vector
+
+        """
         embedded_inputs = tf.nn.embedding_lookup(self.embeddings1, inputs1)
         if inputs2 is not None:
             embedded_inputs2 = tf.nn.embedding_lookup(self.embeddings2, inputs2)
@@ -88,6 +126,27 @@ class AbstractModel:
 
     def biRNN_WSD(self, is_training, n_hidden_layers, n_hidden, seq_lengths, indices, labels, embedded_inputs,
                   wsd_classifier=True, pos_classifier=False, labels_pos=None):
+        """Bi-directional long short-term memory (Bi-LSTM) layer
+
+        Args:
+            is_training: A boolean, indicates whether the output of the layer will be used for training
+            n_hidden_layers: An int, the number of Bi-LSTMs to be initialized
+            n_hidden: An int, the number of neurons per layer in the LSTMs
+            seq_lengths: A tensor of ints, the lengths of the individual sentences
+            indices: A tensor of ints, the words in the sentences that should be disambiguated
+            labels: A tensor of ints or floats, the gold data
+            embedded_inputs: A tensor of floats, the inputs to the RNN layer
+            wsd_classifier: A bool, indicates whether WSD should be learned by the model
+            pos_classifier: A bool, indicates whether POS tagging should be learned by the model
+            labels_pos: A tensor of ints, the gold data for the POS tagging task
+
+        Returns:
+            cost: A float, the loss against which the model is to be trained
+            outputs_wsd: A tensor of floats, the output layer vector produced by the model for the WSD task
+            losses_wsd: A tensor, the losses per disambiguated word
+            logits_pos: A tensor of floats, the output layer vector produced by the model for the POS tagging task
+
+        """
         with tf.variable_scope(tf.get_variable_scope()) as scope:
             initializer = tf.random_uniform_initializer(-1, 1)
 
@@ -108,7 +167,7 @@ class AbstractModel:
             logits_pos, losses_pos, cost_pos = [], [], 0.0
             if pos_classifier is True:
                 logits_pos, losses_pos, cost_pos = self.output_layer(rnn_outputs, labels_pos, classif_type="pos")
-                outputs_wsd, losses_wsd, cost_wsd = [], [], 0.0
+            outputs_wsd, losses_wsd, cost_wsd = [], [], 0.0
             if wsd_classifier is True:
                 outputs_wsd, losses_wsd, cost_wsd = self.output_layer(rnn_outputs, labels, indices, classif_type="wsd")
             cost = cost_wsd + cost_pos
@@ -116,5 +175,6 @@ class AbstractModel:
 
 
     def output_layer(self, rnn_outputs, labels, indices=None):
+        """Calculates the output of the network, specific to the concrete types of models"""
         raise Exception ("Not implemented!")
 

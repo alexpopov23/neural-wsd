@@ -14,6 +14,7 @@ def get_wordnet_lexicon(lexicon_path):
 
     Returns:
         lemma2synsets: A dictionary, maps lemmas to synset IDs
+
     """
     lemma2synsets = {}
     lexicon = open(lexicon_path, "r")
@@ -45,6 +46,7 @@ def get_lemma_synset_maps(wsd_method, lemma2synsets, known_lemmas, lemma2id, syn
         lemma2id: A dictionary, mapping lemmas to integer IDs
         known_lemmas: A set of lemmas seen in the training data
         synset2id: A dictionary, mapping synsets to integer IDs
+
     """
     index_l, index_s = 0, 0
     if wsd_method == "classification" or wsd_method == "multitask":
@@ -75,6 +77,7 @@ def add_synset_ids(wsd_method, data, known_lemmas, synset2id):
     Returns:
         data:   A list of lists; each sentence contains "words" represented
                 in the format: [wordform, lemma, POS, [synset1, ..., synsetN], [synsetID1, ..., synsetIDN]]
+
     """
     for sentence in data:
         for word in sentence:
@@ -112,6 +115,7 @@ def read_naf_file(path, pos_tagset, pos_types):
     Returns:
         sentences: A list of lists; each sentence contains "words" represented
                    in the format: [wordform, lemma, POS, [synset1, ..., synsetN]]
+
     """
     tree = _elementtree.parse(path)
     doc = tree.getroot()
@@ -191,6 +195,7 @@ def read_data_naf(path, lemma2synsets, lemma2id={}, known_lemmas=set(), synset2i
         known_lemmas: A set, all lemmas seen in training
         pos_types: A dictionary, all POS tags seen in training and their mappings to integer IDs
         synset2id: A dictionary, mapping synsets to integer IDs
+
     """
     data = []
     pos_types = {}
@@ -227,6 +232,7 @@ def read_data_uef(path, sensekey2synset, lemma2synsets, lemma2id={}, known_lemma
         known_lemmas: A set, all lemmas seen in training
         pos_types: A dictionary, all POS tags seen in training and their mappings to integer IDs
         synset2id: A dictionary, mapping synsets to integer IDs
+
     """
     data = []
     pos_types, pos_count = {}, 0

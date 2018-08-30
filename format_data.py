@@ -15,6 +15,7 @@ def get_embedding_id(word, input, case, src2id):
 
     Returns:
         embedding_id: An integer, the index into the embeddings model
+
     """
     if input == "wordform":
         if word[0].lower() not in src2id:
@@ -61,6 +62,7 @@ def format_data (data, emb1_src2id, emb1_input, emb1_case, synset2id, max_seq_le
         indices: A list of integers, indexes which words in the data are to be disambiguated
         synsets_gold: A list of strings, provides the gold synset IDs
         pos_filters: A list of strings, provides the POS tags per word (simple tagset: n, v, a, r)
+
     """
     inputs1, inputs2, sequence_lengths, labels_classif, labels_context, labels_pos, indices, synsets_gold, pos_filters =\
         [], [], [], [], [], [], [], [], []
@@ -80,7 +82,7 @@ def format_data (data, emb1_src2id, emb1_input, emb1_case, synset2id, max_seq_le
             # Obtain the synset gold labels / embeddings
             if (word[4][0] > -1):
                 if wsd_method == "classification" or wsd_method == "multitask":
-                    c_label_classif = numpy.zeros(len(synset2id), dtype=float)
+                    c_label_classif = numpy.zeros(len(synset2id), dtype=numpy.float32)
                     for synset_id in word[4]:
                         if synset_id < len(synset2id):
                             c_label_classif[synset_id] = 1.0/len(word[4])
@@ -100,7 +102,7 @@ def format_data (data, emb1_src2id, emb1_input, emb1_case, synset2id, max_seq_le
                     c_labels_classif.append(c_label_classif)
                 if wsd_method == "context_embedding" or wsd_method == "multitask":
                     for synset in word[3]:
-                        c_label_context = numpy.zeros([emb_dim], dtype=float)
+                        c_label_context = numpy.zeros([emb_dim], dtype=numpy.float32)
                         if synset in emb1_src2id:
                             c_label_context += embeddings1[emb1_src2id[synset]]
                     c_label_context = c_label_context / len(word[4])

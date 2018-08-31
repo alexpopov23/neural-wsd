@@ -53,8 +53,8 @@ def format_data (data, emb1_src2id, emb1_input, emb1_case, synset2id, max_seq_le
         wsd_method: A string, indicates the disamguation method used ("classification", "context_embedding", "multitask")
 
     Returns:
-        input1: A list of lists, the integer IDs for the inputs in the primary embedding model
-        input2: A list of lists, the integer IDs for the inputs in the auxiliary embedding model, if in use
+        inputs1: A list of lists, the integer IDs for the inputs in the primary embedding model
+        inputs2: A list of lists, the integer IDs for the inputs in the auxiliary embedding model, if in use
         sequence_lengths: A list of ints, the lengths of the individual sentences
         labels_classif: A list of (one-hot) arrays, the gold labels for the WSD classification method, if in use
         labels_context: A list of arrays, the "gold" embeddings for the context embedding WSD method, if in use
@@ -64,8 +64,8 @@ def format_data (data, emb1_src2id, emb1_input, emb1_case, synset2id, max_seq_le
         pos_filters: A list of strings, provides the POS tags per word (simple tagset: n, v, a, r)
 
     """
-    inputs1, inputs2, sequence_lengths, labels_classif, labels_context, labels_pos, indices, synsets_gold, pos_filters =\
-        [], [], [], [], [], [], [], [], []
+    inputs1, inputs2, sequence_lengths, labels_classif, labels_context, labels_pos, indices, target_lemmas, \
+    synsets_gold, pos_filters = [], [], [], [], [], [], [], [], []
     zero_pos_label = numpy.zeros(len(pos_types), dtype=int)
     counter = 0
     for i, sentence in enumerate(data):
@@ -108,6 +108,7 @@ def format_data (data, emb1_src2id, emb1_input, emb1_case, synset2id, max_seq_le
                     c_label_context = c_label_context / len(word[4])
                     c_labels_context.append(c_label_context)
                 c_synsets.append(word[3])
+                target_lemmas.append(word[1])
                 if word[2] in globals.pos_map_simple:
                     c_pos_filters.append(globals.pos_map_simple[word[2]])
                 else:
@@ -144,8 +145,8 @@ def format_data (data, emb1_src2id, emb1_input, emb1_case, synset2id, max_seq_le
     labels_context = numpy.asarray(labels_context)
     labels_pos = numpy.asarray(labels_pos)
     indices = numpy.asarray(indices)
-    return inputs1, inputs2, sequence_lengths, labels_classif, labels_context, labels_pos, indices, synsets_gold, \
-           pos_filters
+    return inputs1, inputs2, sequence_lengths, labels_classif, labels_context, labels_pos, indices, target_lemmas,\
+           synsets_gold, pos_filters
 
 
 def new_batch(offset, batch_size, data, emb1_src2id, embeddings1_input, embeddings1_case, synset2id, max_seq_length,
@@ -162,9 +163,10 @@ def new_batch(offset, batch_size, data, emb1_src2id, embeddings1_input, embeddin
 
     """
     batch = data[offset:(offset + batch_size)]
-    inputs1, inputs2, sequence_lengths, labels_classif, labels_context, labels_pos, indices, synsets_gold, pos_filters =\
+    inputs1, inputs2, sequence_lengths, labels_classif, labels_context, labels_pos, indices, target_lemmas, \
+    synsets_gold, pos_filters = \
         format_data(wsd_method, batch, emb1_src2id, emb2_src2id, embeddings1_input, embeddings1_case, synset2id,
                     max_seq_length, embeddings1, emb2_src2id, embeddings2_input, embeddings2_case, embeddings1_dim,
                     pos_types, pos_classifier, wsd_method)
-    return inputs1, inputs2, sequence_lengths, labels_classif, labels_context, labels_pos, indices, synsets_gold, \
-           pos_filters
+    return inputs1, inputs2, sequence_lengths, labels_classif, labels_context, labels_pos, indices, target_lemmas,\
+           synsets_gold, pos_filters

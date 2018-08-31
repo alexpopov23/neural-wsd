@@ -10,6 +10,57 @@ import misc
 from data_ops import format_data, read_data, load_embeddings
 
 
+def run_epoch(session, model, inputs1, inputs2, sequence_lengths, labels_classif, labels_context, labels_pos, indices,
+              keep_prob, pos_classifier, mode, wsd_method):
+    """Runs one epoch of the neural model and returns a list of specified tensors
+
+    Args:
+        session: A tf.Session object in which the model is run
+        model: An AbstractModel object, holds the parameters and logic of the model
+        inputs1: A list of lists, the integer IDs for the inputs in the primary embedding model
+        inputs2: A list of lists, the integer IDs for the inputs in the auxiliary embedding model, if in use
+        sequence_lengths: A list of ints, the lengths of the individual sentences
+        labels_classif: A list of (one-hot) arrays, the gold labels for the WSD classification method, if in use
+        labels_context: A list of arrays, the "gold" embeddings for the context embedding WSD method, if in use
+        labels_pos: A list of (one-hot) arrays, the gold labels for the POS classification method, if in use
+        indices: A list of integers, indexes which words in the data are to be disambiguated
+        keep_prob: A float, the probability of outputting the state of a neuron (dropout)
+        pos_classifier: A boolean, indicates whether POS tagging should be carried out
+        mode: A synset, indicates whether the epoch should be executed as: training, validation or application
+        wsd_method: A synset, indicates which model should be used: classification, context_embedding or multitask
+
+    Returns:
+        fetches: A list of the tensors to be retrieved from the network run
+
+    """
+    feed_dict = {}
+    if mode != "application":
+        feed_dict = { model.train_inputs: inputs1,
+                      model.train_seq_lengths : sequence_lengths,
+                      model.train_indices : indices,
+                      model.keep_prob : keep_prob }
+        if wsd_method == "classification":
+            feed_dict.update({model.train_labels_wsd : labels_classif})
+        elif wsd_method == "context_embedding":
+            feed_dict.update({model.train_labels_wsd_context : labels_context})
+        elif wsd_method == "multitask":
+            feed_dict.update({model.train_labels_wsd : labels_classif,
+                              model.train_labels_wsd_context : labels_context})
+        if len(inputs2) > 0:
+            feed_dict.update({model.train_inputs2 : inputs2})
+        if pos_classifier is True:
+            feed_dict.update({model.train_labels_pos : labels_pos})
+        if mode == "train":
+            ops = [model.train_op, model.cost, model.outputs_wsd, model.losses_wsd, model.logits_pos]
+        elif mode == "validation":
+            ops = [model.train_op, model.cost, model.outputs_wsd, model.losses_wsd, model.logits_pos,
+                   model.test_outputs_wsd, model.test_logits_pos]
+    elif mode == "application":
+        ops = [model.test_outputs_wsd, model.test_logits_pos]
+    fetches = session.run(ops, feed_dict=feed_dict)
+    return fetches
+
+
 if __name__ == "__main__":
 
     parser = argparse.ArgumentParser(version='1.0', description='Train or evaluate a neural WSD model.',
@@ -128,7 +179,7 @@ if __name__ == "__main__":
 
     ''' Transform the test data into the input format readable by the neural models'''
     test_inputs1, test_inputs2, test_sequence_lengths, test_labels_classif, test_labels_context, test_labels_pos, \
-    test_indices, test_synsets_gold, test_pos_filters = \
+    test_indices, test_target_lemmas, test_synsets_gold, test_pos_filters = \
         format_data.format_data(test_data, emb1_src2id, embeddings1_input, embeddings1_case, synset2id, max_seq_length,
                                 embeddings1, emb2_src2id, embeddings2_input, embeddings2_case, embeddings1_dim,
                                 pos_types, pos_classifier, wsd_method)
@@ -175,47 +226,31 @@ if __name__ == "__main__":
     results = open(os.path.join(args.save_path, 'results.txt'), "a", 0)
     results.write(str(args) + '\n\n')
     model_path = os.path.join(args.save_path, "model")
-
-    # batch_loss = 0
-    # best_accuracy = 0.0
-    # if multitask == "True":
-    #     batch_loss_r = 0
-    #     best_accuracy_r = 0.0
-
+    batch_loss = 0
+    best_accuracy = 0.0
     for step in range(training_iterations):
         offset = (step * batch_size) % (len(train_data) - batch_size)
-        inputs, input_lemmas, seq_lengths, labels, words_to_disambiguate, indices, lemmas_to_disambiguate, \
-        synsets_gold, pos_filters, pos_labels, hyp_labels, hyp_indices, freq_labels = \
+        inputs1, input2, seq_lengths, labels_classif, labels_context, labels_pos, indices, target_lemmas, synsets_gold,\
+        pos_filters = \
             format_data.new_batch(offset, batch_size, train_data, emb1_src2id, embeddings1_input, embeddings1_case,
                                   synset2id, max_seq_length, embeddings1, emb2_src2id, embeddings2_input,
                                   embeddings2_case, embeddings1_dim, pos_types, pos_classifier, wsd_method)
-        if (len(labels) == 0):
-            continue
-        input_data = [inputs, input_lemmas, seq_lengths, labels, words_to_disambiguate, indices, pos_labels, hyp_labels,
-                      hyp_indices, freq_labels]
         val_accuracy = 0.0
         if (step % 100 == 0):
             print "Step number " + str(step)
-            fetches = run_epoch(session, model, input_data, keep_prob, mode="val", multitask=multitask)
+            results.write('EPOCH: %d' % step + '\n')
+            fetches = run_epoch(session, model, inputs1, input2, seq_lengths, labels_classif, labels_context,
+                                labels_pos, indices, keep_prob, pos_classifier, "validation", wsd_method)
             if (fetches[1] is not None):
                 batch_loss += fetches[1]
-            if multitask == "True" and fetches[2] is not None:
-                batch_loss_r += fetches[2]
-            results.write('EPOCH: %d' % step + '\n')
-            results.write('Averaged minibatch loss at step ' + str(step) + ': ' + str(batch_loss/100.0) + '\n')
-            if multitask == "True":
-                results.write('Averaged minibatch loss (similarity) at step ' + str(step) + ': ' + str(batch_loss_r / 100.0) + '\n')
+            # ops = [model.train_op, model.cost, model.outputs_wsd, model.losses_wsd, model.logits_pos,
+            #        model.test_outputs_wsd, model.test_logits_pos]
+            results.write('Averaged minibatch loss at step ' + str(step) + ': ' + str(batch_loss / 100.0) + '\n')
             if wsd_method == "similarity":
                 val_accuracy = accuracy_cosine_distance(fetches[3], val_lemmas_to_disambiguate, val_synsets_gold, val_pos_filters)
                 results.write('Minibatch accuracy: ' + str(accuracy_cosine_distance(fetches[2], lemmas_to_disambiguate,
                                                                                     synsets_gold, pos_filters)) + '\n')
                 results.write('Validation accuracy: ' + str(val_accuracy) + '\n')
-                # Uncomment lines below in order to save the array with the modified word embeddings
-                # if val_accuracy > 55.0 and val_accuracy > best_accuracy:
-                #     with open(os.path.join(args.save_path, 'embeddings.pkl'), 'wb') as output:
-                #                 pickle.dump(fetches[-1], output, pickle.HIGHEST_PROTOCOL)
-                #     with open(os.path.join(args.save_path, 'src2id_lemmas.pkl'), 'wb') as output:
-                #         pickle.dump(src2id_lemmas, output, pickle.HIGHEST_PROTOCOL)
             elif wsd_method == "fullsoftmax":
                 val_accuracy, val_accuracy_pos, val_accuracy_hyp, val_accuracy_freq = accuracy(fetches[3], val_lemmas_to_disambiguate, val_synsets_gold,
                                                           val_pos_filters, synset2id, val_indices, pos_classifier=pos_classifier,
@@ -246,24 +281,14 @@ if __name__ == "__main__":
                 # ops = [model.train_op, model.cost_c, model.cost_r, model.logits, model.val_logits,
                 #        model.output_emb, model.val_output_emb]
             print "Validation accuracy: " + str(val_accuracy)
-            if freq_classifier == "True":
-                print "Validation accuracy for frequency classification is: " + str(val_accuracy_freq)
             if pos_classifier == "True":
                 print "Validation accuracy for POS: " + str(val_accuracy_pos)
                 results.write('Validation accuracy for POS: ' + str(val_accuracy_pos) + '\n')
-            if hypernym_classifier == "True":
-                print "Validation accuracy for hypernyms: " + str(val_accuracy_hyp)
-                results.write('Validation accuracy for hypernyms: ' + str(val_accuracy_hyp) + '\n')
             batch_loss = 0.0
-            if wsd_method == "multitask":
-                batch_loss_r = 0.0
         else:
             fetches = run_epoch(session, model, input_data, keep_prob, mode="train", multitask=multitask)
             if (fetches[1] is not None):
                 batch_loss += fetches[1]
-            if multitask == "True" and fetches[2] is not None:
-                batch_loss_r += fetches[2]
-
         if val_accuracy > best_accuracy:
             best_accuracy = val_accuracy
             if pos_classifier == "True" and wsd_classifier == "True":

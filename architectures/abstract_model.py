@@ -90,7 +90,7 @@ class AbstractModel:
             embedded_inputs = self.embed_inputs(self.train_inputs1, self.train_inputs2)
         else:
             embedded_inputs = self.embed_inputs(self.train_inputs1)
-        self.cost, self.logits, self.losses, self.logits_pos = \
+        self.cost, self.outputs_wsd, self.losses_wsd, self.logits_pos = \
             self.biRNN_WSD(True, self.n_hidden_layers, self.n_hidden, self.train_seq_lengths, self.train_indices_wsd,
                            self.train_labels_wsd, embedded_inputs, self.wsd_classifier, self.pos_classifier,
                            self.train_labels_pos)
@@ -100,7 +100,7 @@ class AbstractModel:
         else:
             embedded_inputs = self.embed_inputs(self.test_inputs1)
         tf.get_variable_scope().reuse_variables()
-        _, self.test_logits, _, self.test_logits_pos = \
+        _, self.test_outputs_wsd, _, self.test_logits_pos = \
             self.biRNN_WSD(False, self.n_hidden_layers, self.n_hidden, self.test_seq_lengths, self.test_indices_wsd,
                            self.test_labels_wsd, embedded_inputs, self.wsd_classifier, self.pos_classifier,
                            self.test_labels_pos)

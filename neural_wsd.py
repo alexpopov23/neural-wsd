@@ -7,7 +7,7 @@ import tensorflow as tf
 import architectures
 import misc
 
-from data_ops import format_data, read_data, load_embeddings
+from data_ops import format_data, read_data, load_embeddings, evaluation
 
 
 def run_epoch(session, model, inputs1, inputs2, sequence_lengths, labels_classif, labels_context, labels_pos, indices,
@@ -35,21 +35,21 @@ def run_epoch(session, model, inputs1, inputs2, sequence_lengths, labels_classif
     """
     feed_dict = {}
     if mode != "application":
-        feed_dict = { model.train_inputs: inputs1,
-                      model.train_seq_lengths : sequence_lengths,
-                      model.train_indices : indices,
-                      model.keep_prob : keep_prob }
+        feed_dict = {model.train_inputs: inputs1,
+                     model.train_seq_lengths: sequence_lengths,
+                     model.train_indices: indices,
+                     model.keep_prob: keep_prob}
         if wsd_method == "classification":
-            feed_dict.update({model.train_labels_wsd : labels_classif})
+            feed_dict.update({model.train_labels_wsd: labels_classif})
         elif wsd_method == "context_embedding":
-            feed_dict.update({model.train_labels_wsd_context : labels_context})
+            feed_dict.update({model.train_labels_wsd_context: labels_context})
         elif wsd_method == "multitask":
-            feed_dict.update({model.train_labels_wsd : labels_classif,
-                              model.train_labels_wsd_context : labels_context})
+            feed_dict.update({model.train_labels_wsd: labels_classif,
+                              model.train_labels_wsd_context: labels_context})
         if len(inputs2) > 0:
-            feed_dict.update({model.train_inputs2 : inputs2})
+            feed_dict.update({model.train_inputs2: inputs2})
         if pos_classifier is True:
-            feed_dict.update({model.train_labels_pos : labels_pos})
+            feed_dict.update({model.train_labels_pos: labels_pos})
         if mode == "train":
             ops = [model.train_op, model.cost, model.outputs_wsd, model.losses_wsd, model.logits_pos]
         elif mode == "validation":
@@ -72,9 +72,11 @@ if __name__ == "__main__":
     parser.add_argument('-embeddings2_path', dest='embeddings2_path', required=False,
                         help='The path to the pretrained model with the additional embeddings.')
     parser.add_argument('-embeddings1_case', dest='embeddings1_case', required=False, default="lowercase",
-                        help='Are the embeddings trained on lowercased or mixedcased text? Options: lowercase, mixedcase')
+                        help='Are the embeddings trained on lowercased or mixedcased text? Options: lowercase, '
+                             'mixedcase')
     parser.add_argument('-embeddings2_case', dest='embeddings2_case', required=False, default="lowercase",
-                        help='Are the embeddings trained on lowercased or mixedcased text? Options: lowercase, mixedcase')
+                        help='Are the embeddings trained on lowercased or mixedcased text? Options: lowercase, '
+                             'mixedcase')
     parser.add_argument('-embeddings1_dim', dest='embeddings1_dim', required=False, default=300,
                         help='Size of the primary embeddings.')
     parser.add_argument('-embeddings2_dim', dest='embeddings2_dim', required=False, default=0,
@@ -92,7 +94,8 @@ if __name__ == "__main__":
     parser.add_argument('-max_seq_length', dest='max_seq_length', required=False, default=63,
                         help='Maximum length of a sentence to be passed to the network (the rest is cut off).')
     parser.add_argument("-mode", dest="mode", required=False, default="train",
-                        help="Is this is a training, evaluation or application run? Options: train, evaluate, application")
+                        help="Is this is a training, evaluation or application run? Options: train, evaluate, "
+                             "application")
     parser.add_argument('-n_hidden', dest='n_hidden', required=False, default=200,
                         help='Size of the hidden layer.')
     parser.add_argument('-n_hidden_layers', dest='n_hidden_layers', required=False, default=1,
@@ -162,57 +165,63 @@ if __name__ == "__main__":
         sensekey2synset = pickle.load(open(sensekey2synset_path, "rb"))
     lemma2synsets = read_data.get_wordnet_lexicon(lexicon_path)
     if train_data_format == "naf":
-        train_data, lemma2id, known_lemmas, pos_types, synset2id = \
-            read_data.read_data_naf(train_data_path, lemma2synsets, mode=mode, wsd_method=wsd_method,
-                                    pos_tagset=pos_tagset)
+        train_data, lemma2id, known_lemmas, pos_types, synset2id = read_data.read_data_naf(
+            train_data_path, lemma2synsets, mode=mode, wsd_method=wsd_method, pos_tagset=pos_tagset)
     elif train_data_format == "uef":
-        train_data, lemma2id, known_lemmas, pos_types, synset2id = \
-            read_data.read_data_uef(train_data_path, sensekey2synset, lemma2synsets, mode=mode, wsd_method=wsd_method)
+        train_data, lemma2id, known_lemmas, pos_types, synset2id = read_data.read_data_uef(
+            train_data_path, sensekey2synset, lemma2synsets, mode=mode, wsd_method=wsd_method)
     if test_data_format == "naf":
-        test_data, _, _, _, _ = \
-            read_data.read_data_naf(test_data_path, lemma2synsets, lemma2id=lemma2id, known_lemmas=known_lemmas,
-                                    synset2id=synset2id, mode=mode, wsd_method=wsd_method, pos_tagset=pos_tagset)
+        test_data, _, _, _, _ = read_data.read_data_naf(
+            test_data_path, lemma2synsets, lemma2id=lemma2id, known_lemmas=known_lemmas,
+            synset2id=synset2id, mode=mode, wsd_method=wsd_method, pos_tagset=pos_tagset)
     elif test_data_format == "uef":
-        test_data, _, _, _, _ = \
-            read_data.read_data_uef(test_data_path, sensekey2synset, lemma2synsets, lemma2id=lemma2id,
-                                    known_lemmas=known_lemmas, synset2id=synset2id, mode=mode, wsd_method=wsd_method)
+        test_data, _, _, _, _ = read_data.read_data_uef(
+            test_data_path, sensekey2synset, lemma2synsets, lemma2id=lemma2id,
+            known_lemmas=known_lemmas, synset2id=synset2id, mode=mode, wsd_method=wsd_method)
 
     ''' Transform the test data into the input format readable by the neural models'''
-    test_inputs1, test_inputs2, test_sequence_lengths, test_labels_classif, test_labels_context, test_labels_pos, \
-    test_indices, test_target_lemmas, test_synsets_gold, test_pos_filters = \
-        format_data.format_data(test_data, emb1_src2id, embeddings1_input, embeddings1_case, synset2id, max_seq_length,
-                                embeddings1, emb2_src2id, embeddings2_input, embeddings2_case, embeddings1_dim,
-                                pos_types, pos_classifier, wsd_method)
+    (test_inputs1,
+     test_inputs2,
+     test_sequence_lengths,
+     test_labels_classif,
+     test_labels_context,
+     test_labels_pos,
+     test_indices,
+     test_target_lemmas,
+     test_synsets_gold,
+     test_pos_filters) = format_data.format_data(
+        test_data, emb1_src2id, embeddings1_input, embeddings1_case, synset2id, max_seq_length, embeddings1,
+        emb2_src2id, embeddings2_input, embeddings2_case, embeddings1_dim, pos_types, pos_classifier, wsd_method)
 
     ''' Initialize the neural model'''
     model = None
     if wsd_method == "classification":
         output_dimension = len(synset2id)
-        model = architectures.classifier.ClassifierSoftmax\
-            (output_dimension, len(embeddings1), embeddings1_dim, len(embeddings2), embeddings2_dim, batch_size,
-             max_seq_length, n_hidden, n_hidden_layers, learning_rate, keep_prob, test_inputs1, test_inputs2,
-             test_sequence_lengths, test_indices, test_labels_classif, wsd_classifier, pos_classifier, len(pos_types),
-             test_labels_pos)
+        model = architectures.classifier.ClassifierSoftmax(
+            output_dimension, len(embeddings1), embeddings1_dim, len(embeddings2), embeddings2_dim, batch_size,
+            max_seq_length, n_hidden, n_hidden_layers, learning_rate, keep_prob, test_inputs1, test_inputs2,
+            test_sequence_lengths, test_indices, test_labels_classif, wsd_classifier, pos_classifier, len(pos_types),
+            test_labels_pos)
     elif wsd_method == "context_embedding":
         output_dimension = embeddings1_dim
-        model = architectures.context_embedding.ContextEmbedder\
-            (output_dimension, len(embeddings1), embeddings1_dim, len(embeddings2), embeddings2_dim, batch_size,
-             max_seq_length, n_hidden, n_hidden_layers, learning_rate, keep_prob, test_inputs1, test_inputs2,
-             test_sequence_lengths, test_indices, test_labels_context, wsd_classifier, pos_classifier, len(pos_types),
-             test_labels_pos)
+        model = architectures.context_embedding.ContextEmbedder(
+            output_dimension, len(embeddings1), embeddings1_dim, len(embeddings2), embeddings2_dim, batch_size,
+            max_seq_length, n_hidden, n_hidden_layers, learning_rate, keep_prob, test_inputs1, test_inputs2,
+            test_sequence_lengths, test_indices, test_labels_context, wsd_classifier, pos_classifier, len(pos_types),
+            test_labels_pos)
     elif wsd_method == "multitask":
         output_dimension = len(synset2id)
-        model = architectures.multitask_wsd.MultitaskWSD\
-            (output_dimension, len(embeddings1), embeddings1_dim, len(embeddings2), embeddings2_dim, batch_size,
-             max_seq_length, n_hidden, n_hidden_layers, learning_rate, keep_prob, test_inputs1, test_inputs2,
-             test_sequence_lengths, test_indices, test_labels_classif, test_labels_context, wsd_classifier,
-             pos_classifier, len(pos_types), test_labels_pos)
+        model = architectures.multitask_wsd.MultitaskWSD(
+            output_dimension, len(embeddings1), embeddings1_dim, len(embeddings2), embeddings2_dim, batch_size,
+            max_seq_length, n_hidden, n_hidden_layers, learning_rate, keep_prob, test_inputs1, test_inputs2,
+            test_sequence_lengths, test_indices, test_labels_classif, test_labels_context, wsd_classifier,
+            pos_classifier, len(pos_types), test_labels_pos)
 
-    # TODO eval or train model
     ''' Run training and/or evaluation'''
     session = tf.Session()
     saver = tf.train.Saver()
     if mode == "application":
+        #TODO implement
         pass
     else:
         init = tf.initialize_all_variables()
@@ -226,99 +235,98 @@ if __name__ == "__main__":
     results = open(os.path.join(args.save_path, 'results.txt'), "a", 0)
     results.write(str(args) + '\n\n')
     model_path = os.path.join(args.save_path, "model")
+    if not os.path.exists(model_path):
+        os.makedirs(model_path)
+    if wsd_method == "multitask":
+        model_path_context = os.path.join(args.save_path, "model_context")
+        if not os.path.exists(model_path_context):
+            os.makedirs(model_path_context)
     batch_loss = 0
-    best_accuracy = 0.0
+    best_accuracy_wsd, best_accuracy_context = 0.0, 0.0
     for step in range(training_iterations):
         offset = (step * batch_size) % (len(train_data) - batch_size)
-        inputs1, input2, seq_lengths, labels_classif, labels_context, labels_pos, indices, target_lemmas, synsets_gold,\
-        pos_filters = \
-            format_data.new_batch(offset, batch_size, train_data, emb1_src2id, embeddings1_input, embeddings1_case,
-                                  synset2id, max_seq_length, embeddings1, emb2_src2id, embeddings2_input,
-                                  embeddings2_case, embeddings1_dim, pos_types, pos_classifier, wsd_method)
-        val_accuracy = 0.0
-        if (step % 100 == 0):
+        (inputs1,
+         input2,
+         seq_lengths,
+         labels_classif,
+         labels_context,
+         labels_pos,
+         indices,
+         target_lemmas,
+         synsets_gold,
+         pos_filters) = format_data.new_batch(
+            offset, batch_size, train_data, emb1_src2id, embeddings1_input, embeddings1_case,
+            synset2id, max_seq_length, embeddings1, emb2_src2id, embeddings2_input,
+            embeddings2_case, embeddings1_dim, pos_types, pos_classifier, wsd_method)
+        test_accuracy_wsd, test_accuracy_context = 0.0, 0.0
+        if step % 100 == 0:
             print "Step number " + str(step)
             results.write('EPOCH: %d' % step + '\n')
             fetches = run_epoch(session, model, inputs1, input2, seq_lengths, labels_classif, labels_context,
                                 labels_pos, indices, keep_prob, pos_classifier, "validation", wsd_method)
-            if (fetches[1] is not None):
+            if fetches[1] is not None:
                 batch_loss += fetches[1]
-            # ops = [model.train_op, model.cost, model.outputs_wsd, model.losses_wsd, model.logits_pos,
-            #        model.test_outputs_wsd, model.test_logits_pos]
             results.write('Averaged minibatch loss at step ' + str(step) + ': ' + str(batch_loss / 100.0) + '\n')
-            if wsd_method == "similarity":
-                val_accuracy = accuracy_cosine_distance(fetches[3], val_lemmas_to_disambiguate, val_synsets_gold, val_pos_filters)
-                results.write('Minibatch accuracy: ' + str(accuracy_cosine_distance(fetches[2], lemmas_to_disambiguate,
-                                                                                    synsets_gold, pos_filters)) + '\n')
-                results.write('Validation accuracy: ' + str(val_accuracy) + '\n')
-            elif wsd_method == "fullsoftmax":
-                val_accuracy, val_accuracy_pos, val_accuracy_hyp, val_accuracy_freq = accuracy(fetches[3], val_lemmas_to_disambiguate, val_synsets_gold,
-                                                          val_pos_filters, synset2id, val_indices, pos_classifier=pos_classifier,
-                                                          wsd_classifier=wsd_classifier, logits_pos=fetches[5],
-                                                          labels_pos=val_pos_labels, hypernym_classifier=hypernym_classifier,
-                                                          logits_hyp=fetches[7], labels_hyp=val_labels_hyp, lemmas_hyp=val_lemmas_hyp,
-                                                          pos_filters_hyp=val_pos_filters_hyp)
-                results.write('Minibatch accuracy: ' + str(accuracy(fetches[2], lemmas_to_disambiguate, synsets_gold,
-                                                                    pos_filters, synset2id, indices, pos_classifier=pos_classifier,
-                                                                    wsd_classifier=wsd_classifier, logits_pos=fetches[4],
-                                                                    labels_pos=pos_labels)[0])
-                              + '\n')
-                results.write('Validation accuracy: ' + str(val_accuracy) + '\n')
+            if wsd_method == "classification":
+                minibatch_accuracy_wsd, minibatch_accuracy_pos = evaluation.accuracy_classification(
+                    fetches[2], target_lemmas, synsets_gold, pos_filters, synset2id, lemma2synsets, known_lemmas,
+                    wsd_classifier, pos_classifier, fetches[4], labels_pos)
+                test_accuracy_wsd, test_accuracy_pos = evaluation.accuracy_classification(
+                    fetches[5], test_target_lemmas, test_synsets_gold, test_pos_filters, synset2id, lemma2synsets,
+                    known_lemmas, wsd_classifier, pos_classifier, fetches[6], test_labels_pos)
+                if wsd_classifier is True:
+                    results.write('Minibatch WSD accuracy: ' + str(minibatch_accuracy_wsd) + '\n')
+                    results.write('Validation WSD accuracy: ' + str(test_accuracy_wsd) + '\n')
+                if pos_classifier is True:
+                    results.write('Minibatch POS tagging accuracy: ' + str(minibatch_accuracy_pos) + '\n')
+                    results.write('Validation POS tagging accuracy: ' + str(test_accuracy_pos) + '\n')
+            elif wsd_method == "context_embedding":
+                minibatch_accuracy_wsd = evaluation.accuracy_cosine_distance(
+                    fetches[2], target_lemmas, synsets_gold, pos_filters, lemma2synsets, embeddings1, emb1_src2id)
+                test_accuracy_wsd = evaluation.accuracy_cosine_distance(
+                    fetches[5], test_target_lemmas, test_synsets_gold, test_pos_filters, lemma2synsets, embeddings1,
+                    emb1_src2id)
+                results.write('Minibatch WSD accuracy: ' + str(minibatch_accuracy_wsd) + '\n')
+                results.write('Validation WSD accuracy: ' + str(test_accuracy_wsd) + '\n')
             elif wsd_method == "multitask":
-                val_accuracy, _, _, val_accuracy_freq = accuracy(fetches[3], val_lemmas_to_disambiguate, val_synsets_gold, val_pos_filters,
-                                        synset2id, synID_mapping, freq_classifier=freq_classifier, logits_freq=fetches[8], labels_freq=val_freq_labels)
-                results.write('Minibatch classification accuracy: ' +
-                              str(accuracy(fetches[3], lemmas_to_disambiguate, synsets_gold, pos_filters,
-                                           synset2id, synID_mapping)[0]) + '\n')
-                results.write('Validation classification accuracy: ' + str(val_accuracy) + '\n')
-                val_accuracy_r = accuracy_cosine_distance(fetches[6], val_lemmas_to_disambiguate, val_synsets_gold,
-                                                          val_pos_filters)
-                results.write('Minibatch regression accuracy: ' +
-                              str(accuracy_cosine_distance(fetches[5], lemmas_to_disambiguate, synsets_gold,
-                                                           pos_filters)) + '\n')
-                results.write('Validation regression accuracy: ' + str(val_accuracy_r) + '\n')
-
-                # ops = [model.train_op, model.cost_c, model.cost_r, model.logits, model.val_logits,
-                #        model.output_emb, model.val_output_emb]
-            print "Validation accuracy: " + str(val_accuracy)
-            if pos_classifier == "True":
-                print "Validation accuracy for POS: " + str(val_accuracy_pos)
-                results.write('Validation accuracy for POS: ' + str(val_accuracy_pos) + '\n')
+                minibatch_accuracy_wsd, _ = evaluation.accuracy_classification(
+                    fetches[2][0], target_lemmas, synsets_gold, pos_filters, synset2id, lemma2synsets, known_lemmas,
+                    wsd_classifier, pos_classifier, labels_pos)
+                test_accuracy_wsd, _ = evaluation.accuracy_classification(
+                    fetches[5][0], target_lemmas, synsets_gold, pos_filters, synset2id, lemma2synsets, known_lemmas,
+                    wsd_classifier, pos_classifier, labels_pos)
+                minibatch_accuracy_context = evaluation.accuracy_cosine_distance(
+                    fetches[2][1], target_lemmas, synsets_gold, pos_filters, lemma2synsets, embeddings1, emb1_src2id)
+                test_accuracy_context = evaluation.accuracy_cosine_distance(
+                    fetches[5][1], test_target_lemmas, test_synsets_gold, test_pos_filters, lemma2synsets, embeddings1,
+                    emb1_src2id)
+                results.write('Minibatch WSD accuracy (CLASSIFICATION): ' + str(minibatch_accuracy_wsd) + '\n')
+                results.write('Validation WSD accuracy (CLASSIFICATION): ' + str(test_accuracy_wsd) + '\n')
+                results.write('Minibatch WSD accuracy (CONTEXT_EMBEDDING): ' + str(minibatch_accuracy_context) + '\n')
+                results.write('Validation WSD accuracy (CONTEXT_EMBEDDING): ' + str(test_accuracy_context) + '\n')
+            print "Validation accuracy: " + str(test_accuracy_wsd)
+            if wsd_method == "multitask":
+                print "Validation accuracy (CONTEXT_EMBEDDING): " + str(test_accuracy_context)
             batch_loss = 0.0
         else:
-            fetches = run_epoch(session, model, input_data, keep_prob, mode="train", multitask=multitask)
-            if (fetches[1] is not None):
+            fetches = run_epoch(session, model, inputs1, input2, seq_lengths, labels_classif, labels_context,
+                                labels_pos, indices, keep_prob, pos_classifier, "train", wsd_method)
+            if fetches[1] is not None:
                 batch_loss += fetches[1]
-        if val_accuracy > best_accuracy:
-            best_accuracy = val_accuracy
-            if pos_classifier == "True" and wsd_classifier == "True":
-                val_accuracy_gold_pos, _, _, _ = accuracy(fetches[3], val_lemmas_to_disambiguate, val_synsets_gold,
-                                                          val_pos_filters, synset2id, val_indices,
-                                                          pos_classifier=pos_classifier, use_gold_pos="True",
-                                                          logits_pos=fetches[5], labels_pos=val_pos_labels)
-                results.write('Validation classification accuracy with gold POS: ' + str(val_accuracy_gold_pos) + '\n')
-
-        if multitask == "True" and val_accuracy_r > best_accuracy_r:
-            best_accurary_r = val_accuracy_r
-
-
-        if (args.save_path != "None" and step == 25000 or step > 25000 and val_accuracy == best_accuracy):
-            for file in os.listdir(model_path):
-                os.remove(os.path.join(model_path, file))
-            saver.save(session, os.path.join(args.save_path, "model/model.ckpt"), global_step=step)
-            if (step == 25000):
-                with open(os.path.join(args.save_path, 'lemma2synsets.pkl'), 'wb') as output:
-                    pickle.dump(lemma2synsets, output, pickle.HIGHEST_PROTOCOL)
-                with open(os.path.join(args.save_path, 'lemma2id.pkl'), 'wb') as output:
-                    pickle.dump(lemma2id, output, pickle.HIGHEST_PROTOCOL)
-                with open(os.path.join(args.save_path, 'synset2id.pkl'), 'wb') as output:
-                    pickle.dump(synset2id, output, pickle.HIGHEST_PROTOCOL)
-                with open(os.path.join(args.save_path, 'id2synset.pkl'), 'wb') as output:
-                    pickle.dump(id2synset, output, pickle.HIGHEST_PROTOCOL)
-
-    results.write('\n\n\n' + 'Best result is: ' + str(best_accuracy))
-    if multitask == "True":
-        results.write('\n\n\n' + 'Best result (similarity) is: ' + str(best_accuracy_r))
+        if test_accuracy_wsd > best_accuracy_wsd:
+            best_accuracy_wsd = test_accuracy_wsd
+        if wsd_method == "multitask" and test_accuracy_context > best_accuracy_context:
+            best_accuracy_context = test_accuracy_context
+        if args.save_path is not None:
+            if step == 10000 or step > 10000 and test_accuracy_wsd == best_accuracy_wsd:
+                for file in os.listdir(model_path):
+                    os.remove(os.path.join(model_path, file))
+                saver.save(session, os.path.join(args.save_path, "model/model.ckpt"), global_step=step)
+            if step == 10000 or step > 10000 and test_accuracy_context == best_accuracy_context:
+                for file in os.listdir(model_path_context):
+                    os.remove(os.path.join(model_path_context, file))
+                saver.save(session, os.path.join(args.save_path, "model_context/model_context.ckpt"), global_step=step)
+    results.write('\n\n\n' + 'Best result is: ' + str(best_accuracy_wsd))
+    if wsd_method == "multitask":
+        results.write('\n\n\n' + 'Best result (CONTEXT_EMBEDDING) is: ' + str(best_accuracy_context))
     results.close()
-
-    print "This is the end."

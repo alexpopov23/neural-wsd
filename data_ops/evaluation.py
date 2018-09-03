@@ -28,9 +28,8 @@ def accuracy_classification(logits, target_lemmas, synsets_gold, pos_filters, sy
         book_keeping: A list, holds the number of matching and evaluation cases
 
     """
-    accuracy_wsd = 0.0
+    accuracy_wsd, matching_cases, eval_cases = 0.0, 0, 0
     if wsd_classifier is True:
-        matching_cases, eval_cases = 0, 0
         for i, logit in enumerate(logits):
             max, max_id = -10000, -1
             gold_tags = synsets_gold[i]
@@ -57,9 +56,8 @@ def accuracy_classification(logits, target_lemmas, synsets_gold, pos_filters, sy
                 matching_cases += 1
             eval_cases += 1
         accuracy_wsd = (100.0 * matching_cases) / eval_cases
-    accuracy_pos = 0.0
+    accuracy_pos, matching_cases_pos, eval_cases_pos = 0.0, 0, 0
     if pos_classifier is True:
-        matching_cases_pos, eval_cases_pos = 0, 0
         for i, logit_pos in enumerate(logits_pos):
             if numpy.amax(pos_gold[i]) == 0:
                 continue

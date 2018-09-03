@@ -17,7 +17,7 @@ class ClassifierSoftmax(AbstractModel):
         self.run_neural_model()
 
 
-    def output_layer(self, rnn_outputs, labels, indices=None, classif_type="wsd"):
+    def output_layer(self, rnn_outputs, is_training, classif_type="wsd"):
         """Output layer for the classifier model.
 
         Resizes the RNN output to the size of the output vocabulary, obtains a softmax probability distribution
@@ -25,8 +25,7 @@ class ClassifierSoftmax(AbstractModel):
 
         Args:
             rnn_outputs: A tensor of floats, the output of the RNN layer
-            labels: A tensor of ints, the gold data one-hot vectors
-            indices: A tensor of ints, indicates which words should be disambiguated
+            is_training: A bool, indicating whether the function is in "train" or "test" mode
             classif_type: A string, the kind of classification to be carried out: WSD or POS tagging
 
         Returns:
@@ -35,13 +34,21 @@ class ClassifierSoftmax(AbstractModel):
             cost_wsd: A float, the mean loss for the whole input
 
         """
-        if indices is not None:
-            target_outputs = tf.gather(rnn_outputs, indices)
-        else:
-            target_outputs = rnn_outputs
         if classif_type == "wsd":
+            if is_training is True:
+                indices = self.train_indices_wsd
+                labels = self.train_labels_wsd
+            else:
+                indices = self.test_indices_wsd
+                labels = self.test_labels_wsd
+            target_outputs = tf.gather(rnn_outputs, indices)
             weights, biases = self.weights_wsd, self.biases_wsd
         elif classif_type == "pos":
+            target_outputs = rnn_outputs
+            if is_training is True:
+                labels = self.train_labels_pos
+            else:
+                labels = self.test_labels_pos
             weights, biases = self.weights_pos, self.biases_pos
         logits = tf.matmul(target_outputs, weights) + biases
         losses = tf.nn.softmax_cross_entropy_with_logits(logits=logits, labels=labels)

@@ -17,7 +17,7 @@ class ContextEmbedder(AbstractModel):
         self.run_neural_model()
 
 
-    def output_layer(self, rnn_outputs, labels, indices, classif_type="wsd"):
+    def output_layer(self, rnn_outputs, is_training, classif_type="wsd"):
         """Output layer for the context embedding model.
 
         Resizes the RNN output to the size of the vector space model used and obtains a least squares
@@ -25,8 +25,7 @@ class ContextEmbedder(AbstractModel):
 
         Args:
             rnn_outputs: A tensor of floats, the output of the RNN layer
-            labels: A tensor of floats, the gold data synset embeddings
-            indices: A tensor of ints, indicates which words should be disambiguated
+            is_training: A bool, indicating whether the function is in "train" or "test" mode
             classif_type: A string, the kind of classification to be carried out (only WSD implemented in this case)
 
         Returns:
@@ -35,9 +34,16 @@ class ContextEmbedder(AbstractModel):
             cost_wsd: A float, the mean loss for the whole input
 
         """
-        target_outputs = tf.gather(rnn_outputs, indices)
         if classif_type != "wsd":
             raise Exception ("Classification for tasks other than WSD not implemented in this model!")
+            exit()
+        if is_training is True:
+            indices = self.train_indices_wsd
+            labels = self.train_labels_wsd
+        else:
+            indices = self.test_indices_wsd
+            labels = self.test_labels_wsd
+        target_outputs = tf.gather(rnn_outputs, indices)
         output_embeddings = tf.matmul(target_outputs, self.weights_wsd) + self.biases_wsd
         losses = (labels - output_embeddings) ** 2
         cost_wsd = tf.reduce_mean(losses)

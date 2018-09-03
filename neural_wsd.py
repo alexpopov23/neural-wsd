@@ -35,14 +35,14 @@ def run_epoch(session, model, inputs1, inputs2, sequence_lengths, labels_classif
     """
     feed_dict = {}
     if mode != "evaluation":
-        feed_dict = {model.train_inputs: inputs1,
+        feed_dict = {model.train_inputs1: inputs1,
                      model.train_seq_lengths: sequence_lengths,
-                     model.train_indices: indices,
-                     model.keep_prob: keep_prob}
+                     model.train_indices_wsd: indices,
+                     }
         if wsd_method == "classification":
             feed_dict.update({model.train_labels_wsd: labels_classif})
         elif wsd_method == "context_embedding":
-            feed_dict.update({model.train_labels_wsd_context: labels_context})
+            feed_dict.update({model.train_labels_wsd: labels_context})
         elif wsd_method == "multitask":
             feed_dict.update({model.train_labels_wsd: labels_classif,
                               model.train_labels_wsd_context: labels_context})
@@ -79,7 +79,7 @@ if __name__ == "__main__":
                              'mixedcase')
     parser.add_argument('-embeddings1_dim', dest='embeddings1_dim', required=False, default=300,
                         help='Size of the primary embeddings.')
-    parser.add_argument('-embeddings2_dim', dest='embeddings2_dim', required=False, default=0,
+    parser.add_argument('-embeddings2_dim', dest='embeddings2_dim', required=False, default=300,
                         help='Size of the additional embeddings.')
     parser.add_argument('-embeddings1_input', dest='embeddings1_input', required=False, default="wordform",
                         help='Are these embeddings of wordforms or lemmas? Options are: wordform, lemma')
@@ -132,7 +132,10 @@ if __name__ == "__main__":
     embeddings1_input = args.embeddings1_input
     embeddings2_path = args.embeddings2_path
     embeddings2_case = args.embeddings2_case
-    embeddings2_dim = int(args.embeddings2_dim)
+    if embeddings2_path is not None:
+        embeddings2_dim = int(args.embeddings2_dim)
+    else:
+        embeddings2_dim = 0
     embeddings2_input = args.embeddings2_input
     keep_prob = float(args.keep_prob)
     learning_rate = float(args.learning_rate)
@@ -224,7 +227,7 @@ if __name__ == "__main__":
     model_path = os.path.join(args.save_path, "model")
     if not os.path.exists(model_path):
         os.makedirs(model_path)
-    if wsd_method == "multitask":
+    if wsd_method == "context_embedding" or wsd_method == "multitask":
         model_path_context = os.path.join(args.save_path, "model_context")
         if not os.path.exists(model_path_context):
             os.makedirs(model_path_context)
@@ -354,8 +357,8 @@ if __name__ == "__main__":
                     fetches[2][0], target_lemmas, synsets_gold, pos_filters, synset2id, lemma2synsets, known_lemmas,
                     wsd_classifier, pos_classifier, labels_pos)
                 test_accuracy_wsd, _, _ = evaluation.accuracy_classification(
-                    fetches[5][0], target_lemmas, synsets_gold, pos_filters, synset2id, lemma2synsets, known_lemmas,
-                    wsd_classifier, pos_classifier, labels_pos)
+                    fetches[5][0], test_target_lemmas, test_synsets_gold, test_pos_filters, synset2id, lemma2synsets,
+                    known_lemmas, wsd_classifier, pos_classifier, test_labels_pos)
                 minibatch_accuracy_context, _ = evaluation.accuracy_cosine_distance(
                     fetches[2][1], target_lemmas, synsets_gold, pos_filters, lemma2synsets, embeddings1, emb1_src2id)
                 test_accuracy_context, _ = evaluation.accuracy_cosine_distance(
@@ -379,11 +382,12 @@ if __name__ == "__main__":
         if wsd_method == "multitask" and test_accuracy_context > best_accuracy_context:
             best_accuracy_context = test_accuracy_context
         if args.save_path is not None:
-            if step == 10000 or step > 10000 and test_accuracy_wsd == best_accuracy_wsd:
+            if step == 100 or step > 100 and test_accuracy_wsd == best_accuracy_wsd:
                 for file in os.listdir(model_path):
                     os.remove(os.path.join(model_path, file))
                 saver.save(session, os.path.join(args.save_path, "model/model.ckpt"), global_step=step)
-            if step == 10000 or step > 10000 and test_accuracy_context == best_accuracy_context:
+            if wsd_method == "multitask" and \
+                    (step == 100 or step > 100 and test_accuracy_context == best_accuracy_context):
                 for file in os.listdir(model_path_context):
                     os.remove(os.path.join(model_path_context, file))
                 saver.save(session, os.path.join(args.save_path, "model_context/model_context.ckpt"), global_step=step)

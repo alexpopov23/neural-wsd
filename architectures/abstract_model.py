@@ -44,21 +44,21 @@ class AbstractModel:
         self.keep_prob = keep_prob
         self.wsd_classifier = wsd_classifier
         self.pos_classifier = pos_classifier
-        self.emb1_placeholder = tf.placeholder(tf.float32, shape=[vocab_size1, emb1_dim])
+        self.emb1_placeholder = tf.placeholder(tf.float32, shape=[vocab_size1, emb1_dim], name="emb1_placeholder")
         self.embeddings1 = tf.Variable(self.emb1_placeholder)
         self.set_embeddings1 = tf.assign(self.embeddings1, self.emb1_placeholder, validate_shape=False)
         if vocab_size2 > 0:
-            self.emb2_placeholder = tf.placeholder(tf.float32, shape=[vocab_size2, emb2_dim])
+            self.emb2_placeholder = tf.placeholder(tf.float32, shape=[vocab_size2, emb2_dim], name="emb2_placeholder")
             self.embeddings2 = tf.Variable(self.emb2_placeholder)
             self.set_embeddings2 = tf.assign(self.embeddings2, self.emb2_placeholder, validate_shape=False)
         if wsd_classifier is True:
             self.weights_wsd = tf.get_variable(name="softmax_wsd-w", shape=[2 * n_hidden, output_dim],
                                                dtype=tf.float32)
             self.biases_wsd = tf.get_variable(name="softmax_wsd-b", shape=[output_dim], dtype=tf.float32)
-            self.train_labels_wsd = tf.placeholder(dtype=test_labels_wsd.dtype, shape=[None, output_dim])
-            self.train_indices_wsd = tf.placeholder(dtype=tf.int32, shape=[None])
-            self.test_labels_wsd = tf.constant(test_labels_wsd, test_labels_wsd.dtype)
-            self.test_indices_wsd = tf.constant(test_indices_wsd, tf.int32)
+            self.train_labels_wsd = tf.placeholder(name="train_labels_wsd", dtype=test_labels_wsd.dtype, shape=[None, output_dim])
+            self.train_indices_wsd = tf.placeholder(name="train_indices_wsd", dtype=tf.int32, shape=[None])
+            self.test_labels_wsd = tf.constant(test_labels_wsd, test_labels_wsd.dtype, name="test_labels_wsd")
+            self.test_indices_wsd = tf.constant(test_indices_wsd, tf.int32, name="test_indices_wsd")
         else:
             self.weights_wsd = None
             self.biases_wsd = None
@@ -66,23 +66,23 @@ class AbstractModel:
             self.train_indices_wsd = None
             self.test_indices_wsd = None
             self.test_labels_wsd = None
-        self.train_inputs1 = tf.placeholder(tf.int32, shape=[batch_size, max_seq_length])
-        self.train_inputs2 = tf.placeholder(tf.int32, shape=[batch_size, max_seq_length])
-        self.train_seq_lengths = tf.placeholder(tf.int32, shape=[batch_size])
+        self.train_inputs1 = tf.placeholder(tf.int32, shape=[batch_size, max_seq_length], name="train_inputs1")
+        self.train_inputs2 = tf.placeholder(tf.int32, shape=[batch_size, max_seq_length], name="train_inputs2")
+        self.train_seq_lengths = tf.placeholder(tf.int32, shape=[batch_size], name="train_seq_lengths")
         if pos_classifier is True:
             self.weights_pos = tf.get_variable(name="softmax_pos-w", shape=[2*n_hidden, pos_classes], dtype=tf.float32)
             self.biases_pos = tf.get_variable(name="softmax_pos-b", shape=[pos_classes], dtype=tf.float32)
             self.train_labels_pos = tf.placeholder(name="pos_labels", shape=[None, pos_classes], dtype=tf.int32)
-            self.test_labels_pos = tf.constant(test_labels_pos, tf.int32)
+            self.test_labels_pos = tf.constant(test_labels_pos, tf.int32, name="test_labels_pos")
         else:
             self.weights_pos = None
             self.biases_pos = None
             self.train_labels_pos = None
             self.test_labels_pos = None
-        self.test_inputs1 = tf.constant(test_inputs1, tf.int32)
+        self.test_inputs1 = tf.constant(test_inputs1, tf.int32, name="test_inputs1")
         if vocab_size2 > 0:
-            self.test_inputs2 = tf.constant(test_inputs2, tf.int32)
-        self.test_seq_lengths = tf.constant(test_seq_lengths, tf.int32)
+            self.test_inputs2 = tf.constant(test_inputs2, tf.int32, name="test_inputs2")
+        self.test_seq_lengths = tf.constant(test_seq_lengths, tf.int32, name="test_seq_lengths")
 
     def run_neural_model(self):
         """Runs the model: embeds the inputs, calculates recurrences and performs classification/regression"""
@@ -90,20 +90,18 @@ class AbstractModel:
             embedded_inputs = self.embed_inputs(self.train_inputs1, self.train_inputs2)
         else:
             embedded_inputs = self.embed_inputs(self.train_inputs1)
-        self.cost, self.outputs_wsd, self.losses_wsd, self.logits_pos = \
-            self.biRNN_WSD(True, self.n_hidden_layers, self.n_hidden, self.train_seq_lengths, self.train_indices_wsd,
-                           self.train_labels_wsd, embedded_inputs, self.wsd_classifier, self.pos_classifier,
-                           self.train_labels_pos)
+        self.cost, self.outputs_wsd, self.losses_wsd, self.logits_pos = self.biRNN_WSD\
+            (True, self.n_hidden_layers, self.n_hidden, self.train_seq_lengths, embedded_inputs,
+             self.wsd_classifier, self.pos_classifier)
         self.train_op = tf.train.GradientDescentOptimizer(self.learning_rate).minimize(self.cost)
         if self.vocab_size2 > 0:
             embedded_inputs = self.embed_inputs(self.test_inputs1, self.test_inputs2)
         else:
             embedded_inputs = self.embed_inputs(self.test_inputs1)
         tf.get_variable_scope().reuse_variables()
-        _, self.test_outputs_wsd, _, self.test_logits_pos = \
-            self.biRNN_WSD(False, self.n_hidden_layers, self.n_hidden, self.test_seq_lengths, self.test_indices_wsd,
-                           self.test_labels_wsd, embedded_inputs, self.wsd_classifier, self.pos_classifier,
-                           self.test_labels_pos)
+        _, self.test_outputs_wsd, _, self.test_logits_pos = self.biRNN_WSD\
+            (False, self.n_hidden_layers, self.n_hidden, self.test_seq_lengths, embedded_inputs,
+             self.wsd_classifier, self.pos_classifier)
 
 
     def embed_inputs(self, inputs1, inputs2=None):
@@ -126,8 +124,8 @@ class AbstractModel:
         return embedded_inputs
 
 
-    def biRNN_WSD(self, is_training, n_hidden_layers, n_hidden, seq_lengths, indices, labels, embedded_inputs,
-                  wsd_classifier=True, pos_classifier=False, labels_pos=None):
+    def biRNN_WSD(self, is_training, n_hidden_layers, n_hidden, seq_lengths, embedded_inputs, wsd_classifier=True,
+                  pos_classifier=False):
         """Bi-directional long short-term memory (Bi-LSTM) layer
 
         Args:
@@ -135,12 +133,9 @@ class AbstractModel:
             n_hidden_layers: An int, the number of Bi-LSTMs to be initialized
             n_hidden: An int, the number of neurons per layer in the LSTMs
             seq_lengths: A tensor of ints, the lengths of the individual sentences
-            indices: A tensor of ints, the words in the sentences that should be disambiguated
-            labels: A tensor of ints or floats, the gold data
             embedded_inputs: A tensor of floats, the inputs to the RNN layer
             wsd_classifier: A bool, indicates whether WSD should be learned by the model
             pos_classifier: A bool, indicates whether POS tagging should be learned by the model
-            labels_pos: A tensor of ints, the gold data for the POS tagging task
 
         Returns:
             cost: A float, the loss against which the model is to be trained
@@ -168,15 +163,15 @@ class AbstractModel:
             rnn_outputs = tf.reshape(rnn_outputs, [-1, 2 * n_hidden])
             logits_pos, losses_pos, cost_pos = [], [], 0.0
             if pos_classifier is True:
-                logits_pos, losses_pos, cost_pos = self.output_layer(rnn_outputs, labels_pos, classif_type="pos")
+                logits_pos, losses_pos, cost_pos = self.output_layer(rnn_outputs, is_training, classif_type="pos")
             outputs_wsd, losses_wsd, cost_wsd = [], [], 0.0
             if wsd_classifier is True:
-                outputs_wsd, losses_wsd, cost_wsd = self.output_layer(rnn_outputs, labels, indices, classif_type="wsd")
+                outputs_wsd, losses_wsd, cost_wsd = self.output_layer(rnn_outputs, is_training, classif_type="wsd")
             cost = cost_wsd + cost_pos
         return cost, outputs_wsd, losses_wsd, logits_pos
 
 
-    def output_layer(self, rnn_outputs, labels, indices=None):
+    def output_layer(self, rnn_outputs, is_training, classif_type):
         """Calculates the output of the network, specific to the concrete types of models"""
         raise Exception ("Not implemented!")
 

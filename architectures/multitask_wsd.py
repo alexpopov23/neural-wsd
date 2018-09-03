@@ -22,14 +22,14 @@ class MultitaskWSD(AbstractModel):
         self.weights_wsd_context = tf.get_variable(name="context_wsd-w", shape=[2*n_hidden, emb1_dim], dtype=tf.float32)
         self.biases_wsd_context = tf.get_variable(name="context_wsd-b", shape=[emb1_dim], dtype=tf.float32)
         self.train_labels_wsd_context = tf.placeholder(tf.float32, shape=[None, emb1_dim],
-                                                       name="train_labels_context_embedding")
-        self.train_labels_wsd = (self.train_labels_wsd, self.train_labels_wsd_context)
+                                                       name="train_labels_wsd_context")
+        # self.train_labels_wsd = (self.train_labels_wsd, self.train_labels_wsd_context)
         self.test_labels_wsd_context = tf.constant(test_labels_wsd_context, tf.float32)
-        self.test_labels_wsd = (self.test_labels_wsd, self.test_labels_wsd_context)
+        # self.test_labels_wsd = (self.test_labels_wsd, self.test_labels_wsd_context)
         self.run_neural_model()
 
 
-    def output_layer(self, rnn_outputs, (labels_classif, labels_context), indices, classif_type="wsd"):
+    def output_layer(self, rnn_outputs, is_training, classif_type="wsd"):
         """Output layer for the multitask WSD model.
 
         Resizes the RNN output to two separate vectors -- one the size of the output vocabulary used for
@@ -39,8 +39,7 @@ class MultitaskWSD(AbstractModel):
 
         Args:
             rnn_outputs: A tensor of floats, the output of the RNN layer
-            labels: A tuple, contains two tensors -- the gold data one-hot labels and synset embeddings
-            indices: A tensor of ints, indicates which words should be disambiguated
+            is_training: A bool, indicating whether the function is in "train" or "test" mode
             classif_type: A string, the kind of classification to be carried out (only WSD implemented in this case)
 
         Returns:
@@ -49,9 +48,17 @@ class MultitaskWSD(AbstractModel):
             cost_wsd: A float, the combined loss for the two output layers
 
         """
-        target_outputs = tf.gather(rnn_outputs, indices)
         if classif_type != "wsd":
             raise Exception ("Classification for tasks other than WSD not implemented in this model!")
+        if is_training is True:
+            indices = self.train_indices_wsd
+            labels_classif = self.train_labels_wsd
+            labels_context = self.train_labels_wsd_context
+        else:
+            indices = self.test_indices_wsd
+            labels_classif = self.test_labels_wsd
+            labels_context = self.test_labels_wsd_context
+        target_outputs = tf.gather(rnn_outputs, indices)
         logits_classif = tf.matmul(target_outputs, self.weights_wsd) + self.biases_wsd
         losses_classif = tf.nn.softmax_cross_entropy_with_logits(logits=logits_classif, labels=labels_classif)
         cost_classif = tf.reduce_mean(losses_classif)

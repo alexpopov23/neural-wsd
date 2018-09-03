@@ -26,7 +26,7 @@ def run_epoch(session, model, inputs1, inputs2, sequence_lengths, labels_classif
         indices: A list of integers, indexes which words in the data are to be disambiguated
         keep_prob: A float, the probability of outputting the state of a neuron (dropout)
         pos_classifier: A boolean, indicates whether POS tagging should be carried out
-        mode: A synset, indicates whether the epoch should be executed as: training, validation or application
+        mode: A synset, indicates whether the epoch should be executed as: training, validation or evaluation
         wsd_method: A synset, indicates which model should be used: classification, context_embedding or multitask
 
     Returns:
@@ -34,7 +34,7 @@ def run_epoch(session, model, inputs1, inputs2, sequence_lengths, labels_classif
 
     """
     feed_dict = {}
-    if mode != "application":
+    if mode != "evaluation":
         feed_dict = {model.train_inputs: inputs1,
                      model.train_seq_lengths: sequence_lengths,
                      model.train_indices: indices,
@@ -55,8 +55,8 @@ def run_epoch(session, model, inputs1, inputs2, sequence_lengths, labels_classif
         elif mode == "validation":
             ops = [model.train_op, model.cost, model.outputs_wsd, model.losses_wsd, model.logits_pos,
                    model.test_outputs_wsd, model.test_logits_pos]
-    elif mode == "application":
-        ops = [model.test_outputs_wsd, model.test_logits_pos]
+    elif mode == "evaluation":
+        ops = [model.outputs_wsd, model.logits_pos]
     fetches = session.run(ops, feed_dict=feed_dict)
     return fetches
 
@@ -180,18 +180,19 @@ if __name__ == "__main__":
             known_lemmas=known_lemmas, synset2id=synset2id, mode=mode, wsd_method=wsd_method)
 
     ''' Transform the test data into the input format readable by the neural models'''
-    (test_inputs1,
-     test_inputs2,
-     test_sequence_lengths,
-     test_labels_classif,
-     test_labels_context,
-     test_labels_pos,
-     test_indices,
-     test_target_lemmas,
-     test_synsets_gold,
-     test_pos_filters) = format_data.format_data(
-        test_data, emb1_src2id, embeddings1_input, embeddings1_case, synset2id, max_seq_length, embeddings1,
-        emb2_src2id, embeddings2_input, embeddings2_case, embeddings1_dim, pos_types, pos_classifier, wsd_method)
+    if mode != "evaluation":
+        (test_inputs1,
+         test_inputs2,
+         test_sequence_lengths,
+         test_labels_classif,
+         test_labels_context,
+         test_labels_pos,
+         test_indices,
+         test_target_lemmas,
+         test_synsets_gold,
+         test_pos_filters) = format_data.format_data(
+            test_data, emb1_src2id, embeddings1_input, embeddings1_case, synset2id, max_seq_length, embeddings1,
+            emb2_src2id, embeddings2_input, embeddings2_case, embeddings1_dim, pos_types, pos_classifier, wsd_method)
 
     ''' Initialize the neural model'''
     model = None
@@ -220,9 +221,76 @@ if __name__ == "__main__":
     ''' Run training and/or evaluation'''
     session = tf.Session()
     saver = tf.train.Saver()
-    if mode == "application":
-        #TODO implement
-        pass
+    model_path = os.path.join(args.save_path, "model")
+    if not os.path.exists(model_path):
+        os.makedirs(model_path)
+    if wsd_method == "multitask":
+        model_path_context = os.path.join(args.save_path, "model_context")
+        if not os.path.exists(model_path_context):
+            os.makedirs(model_path_context)
+    if mode == "evaluation":
+        if wsd_method == "classification":
+            with open(os.path.joint(model_path, "checkpoint"), "r") as f:
+                for line in f.readlines():
+                    if line.split()[0] == "model_checkpoint_path":
+                        model_checkpoint_path = line.split()[1]
+                        break
+                saver.restore(session, model_checkpoint_path)
+        app_data = args.test_data
+        match_wsd_classif_total, eval_wsd_classif_total, match_classif_wsd, eval_classif_wsd = [0, 0, 0, 0]
+        match_wsd_context_total, eval_wsd_context_total, match_wsd_context, eval_wsd_context = [0, 0, 0, 0]
+        match_pos_total, eval_pos_total, match_pos, eval_pos = [0, 0, 0, 0]
+        for step in range(len(app_data) / batch_size + 1):
+            offset = (step * batch_size) % (len(app_data))
+            (inputs1,
+             inputs2,
+             seq_lengths,
+             labels_classif,
+             labels_context,
+             labels_pos,
+             indices,
+             target_lemmas,
+             synsets_gold,
+             pos_filters) = format_data.new_batch(
+                offset, batch_size, app_data, emb1_src2id, embeddings1_input, embeddings1_case,
+                synset2id, max_seq_length, embeddings1, emb2_src2id, embeddings2_input,
+                embeddings2_case, embeddings1_dim, pos_types, pos_classifier, wsd_method)
+            fetches = run_epoch(session, model, inputs1, inputs2, seq_lengths, labels_classif, labels_context,
+                                labels_pos, indices, keep_prob, pos_classifier, "evaluation", wsd_method)
+            if wsd_method == "classification":
+                _, _, [match_classif_wsd, eval_classif_wsd, match_pos, eval_pos] = evaluation.accuracy_classification(
+                    fetches[0], target_lemmas, synsets_gold, pos_filters, synset2id, lemma2synsets, known_lemmas,
+                    wsd_classifier, pos_classifier, fetches[1], labels_pos)
+            elif wsd_method == "context_embedding":
+                _, [match_wsd_context, eval_wsd_context] = evaluation.accuracy_cosine_distance(
+                    fetches[2], target_lemmas, synsets_gold, pos_filters, lemma2synsets, embeddings1, emb1_src2id)
+            elif wsd_method == "multitask":
+                _, _, [match_classif_wsd, eval_classif_wsd, _, _] = evaluation.accuracy_classification(
+                    fetches[0][0], target_lemmas, synsets_gold, pos_filters, synset2id, lemma2synsets, known_lemmas,
+                    wsd_classifier, pos_classifier, labels_pos)
+                _, [match_wsd_context, eval_wsd_context] = evaluation.accuracy_cosine_distance(
+                    fetches[0][1], target_lemmas, synsets_gold, pos_filters, lemma2synsets, embeddings1, emb1_src2id)
+            match_wsd_classif_total += match_classif_wsd
+            eval_wsd_classif_total += eval_classif_wsd
+            match_wsd_context_total += match_wsd_context
+            eval_wsd_context_total += eval_wsd_context
+            match_pos_total += match_pos
+            eval_pos_total += eval_pos
+        if wsd_method == "classification":
+            print "Accuracy for WSD (CLASSIFICATION) is " + \
+                  str((100.0 * match_wsd_classif_total) / eval_wsd_classif_total) + "%"
+        elif wsd_method == "context_embedding":
+            print "Accuracy for WSD (CONTEXT_EMBEDDING) is " + \
+                  str((100.0 * match_wsd_context_total) / eval_wsd_context_total) + "%"
+        elif wsd_method == "multitask":
+            print "Accuracy for WSD (CLASSIFICATION) is " + \
+                  str((100.0 * match_wsd_classif_total) / eval_wsd_classif_total) + "%"
+            print "Accuracy for WSD (CONTEXT_EMBEDDING) is " + \
+                  str((100.0 * match_wsd_context_total) / eval_wsd_context_total) + "%"
+        if pos_classifier is True:
+            print "Accuracy for POS tagging is " + \
+                  str((100.0 * match_pos_total) / eval_pos_total) + "%"
+        exit()
     else:
         init = tf.initialize_all_variables()
         feed_dict = {model.emb1_placeholder: embeddings1}
@@ -234,19 +302,12 @@ if __name__ == "__main__":
         os.makedirs(args.save_path)
     results = open(os.path.join(args.save_path, 'results.txt'), "a", 0)
     results.write(str(args) + '\n\n')
-    model_path = os.path.join(args.save_path, "model")
-    if not os.path.exists(model_path):
-        os.makedirs(model_path)
-    if wsd_method == "multitask":
-        model_path_context = os.path.join(args.save_path, "model_context")
-        if not os.path.exists(model_path_context):
-            os.makedirs(model_path_context)
     batch_loss = 0
     best_accuracy_wsd, best_accuracy_context = 0.0, 0.0
     for step in range(training_iterations):
         offset = (step * batch_size) % (len(train_data) - batch_size)
         (inputs1,
-         input2,
+         inputs2,
          seq_lengths,
          labels_classif,
          labels_context,
@@ -262,16 +323,16 @@ if __name__ == "__main__":
         if step % 100 == 0:
             print "Step number " + str(step)
             results.write('EPOCH: %d' % step + '\n')
-            fetches = run_epoch(session, model, inputs1, input2, seq_lengths, labels_classif, labels_context,
+            fetches = run_epoch(session, model, inputs1, inputs2, seq_lengths, labels_classif, labels_context,
                                 labels_pos, indices, keep_prob, pos_classifier, "validation", wsd_method)
             if fetches[1] is not None:
                 batch_loss += fetches[1]
             results.write('Averaged minibatch loss at step ' + str(step) + ': ' + str(batch_loss / 100.0) + '\n')
             if wsd_method == "classification":
-                minibatch_accuracy_wsd, minibatch_accuracy_pos = evaluation.accuracy_classification(
+                minibatch_accuracy_wsd, minibatch_accuracy_pos, _ = evaluation.accuracy_classification(
                     fetches[2], target_lemmas, synsets_gold, pos_filters, synset2id, lemma2synsets, known_lemmas,
                     wsd_classifier, pos_classifier, fetches[4], labels_pos)
-                test_accuracy_wsd, test_accuracy_pos = evaluation.accuracy_classification(
+                test_accuracy_wsd, test_accuracy_pos, _ = evaluation.accuracy_classification(
                     fetches[5], test_target_lemmas, test_synsets_gold, test_pos_filters, synset2id, lemma2synsets,
                     known_lemmas, wsd_classifier, pos_classifier, fetches[6], test_labels_pos)
                 if wsd_classifier is True:
@@ -281,23 +342,23 @@ if __name__ == "__main__":
                     results.write('Minibatch POS tagging accuracy: ' + str(minibatch_accuracy_pos) + '\n')
                     results.write('Validation POS tagging accuracy: ' + str(test_accuracy_pos) + '\n')
             elif wsd_method == "context_embedding":
-                minibatch_accuracy_wsd = evaluation.accuracy_cosine_distance(
+                minibatch_accuracy_wsd, _ = evaluation.accuracy_cosine_distance(
                     fetches[2], target_lemmas, synsets_gold, pos_filters, lemma2synsets, embeddings1, emb1_src2id)
-                test_accuracy_wsd = evaluation.accuracy_cosine_distance(
+                test_accuracy_wsd, _ = evaluation.accuracy_cosine_distance(
                     fetches[5], test_target_lemmas, test_synsets_gold, test_pos_filters, lemma2synsets, embeddings1,
                     emb1_src2id)
                 results.write('Minibatch WSD accuracy: ' + str(minibatch_accuracy_wsd) + '\n')
                 results.write('Validation WSD accuracy: ' + str(test_accuracy_wsd) + '\n')
             elif wsd_method == "multitask":
-                minibatch_accuracy_wsd, _ = evaluation.accuracy_classification(
+                minibatch_accuracy_wsd, _, _ = evaluation.accuracy_classification(
                     fetches[2][0], target_lemmas, synsets_gold, pos_filters, synset2id, lemma2synsets, known_lemmas,
                     wsd_classifier, pos_classifier, labels_pos)
-                test_accuracy_wsd, _ = evaluation.accuracy_classification(
+                test_accuracy_wsd, _, _ = evaluation.accuracy_classification(
                     fetches[5][0], target_lemmas, synsets_gold, pos_filters, synset2id, lemma2synsets, known_lemmas,
                     wsd_classifier, pos_classifier, labels_pos)
-                minibatch_accuracy_context = evaluation.accuracy_cosine_distance(
+                minibatch_accuracy_context, _ = evaluation.accuracy_cosine_distance(
                     fetches[2][1], target_lemmas, synsets_gold, pos_filters, lemma2synsets, embeddings1, emb1_src2id)
-                test_accuracy_context = evaluation.accuracy_cosine_distance(
+                test_accuracy_context, _ = evaluation.accuracy_cosine_distance(
                     fetches[5][1], test_target_lemmas, test_synsets_gold, test_pos_filters, lemma2synsets, embeddings1,
                     emb1_src2id)
                 results.write('Minibatch WSD accuracy (CLASSIFICATION): ' + str(minibatch_accuracy_wsd) + '\n')
@@ -309,7 +370,7 @@ if __name__ == "__main__":
                 print "Validation accuracy (CONTEXT_EMBEDDING): " + str(test_accuracy_context)
             batch_loss = 0.0
         else:
-            fetches = run_epoch(session, model, inputs1, input2, seq_lengths, labels_classif, labels_context,
+            fetches = run_epoch(session, model, inputs1, inputs2, seq_lengths, labels_classif, labels_context,
                                 labels_pos, indices, keep_prob, pos_classifier, "train", wsd_method)
             if fetches[1] is not None:
                 batch_loss += fetches[1]

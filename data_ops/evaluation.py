@@ -25,6 +25,7 @@ def accuracy_classification(logits, target_lemmas, synsets_gold, pos_filters, sy
     Returns:
         accuracy_wsd: A float, the accuracy for the WSD task
         accuracy_pos: A float, the accuracy for the POS tagging task
+        book_keeping: A list, holds the number of matching and evaluation cases
 
     """
     accuracy_wsd = 0.0
@@ -66,7 +67,8 @@ def accuracy_classification(logits, target_lemmas, synsets_gold, pos_filters, sy
                 matching_cases_pos += 1
             eval_cases_pos += 1
         accuracy_pos = (100.0 * matching_cases_pos) / eval_cases_pos
-    return accuracy_wsd, accuracy_pos
+    book_keeping = [matching_cases, eval_cases, matching_cases_pos, eval_cases_pos]
+    return accuracy_wsd, accuracy_pos, book_keeping
 
 
 def accuracy_cosine_distance(context_embeddings, target_lemmas, synsets_gold, pos_filters, lemma2synsets,
@@ -86,6 +88,7 @@ def accuracy_cosine_distance(context_embeddings, target_lemmas, synsets_gold, po
 
     Returns:
         accuracy: A float, the accuracy for the WSD task
+        book_keeping: A tuple, holds the number of matching and evaluation cases
 
     """
     matching_cases, eval_cases = 0, 0
@@ -111,4 +114,5 @@ def accuracy_cosine_distance(context_embeddings, target_lemmas, synsets_gold, po
             matching_cases += 1
         eval_cases += 1
     accuracy = (100.0 * matching_cases) / eval_cases
-    return accuracy
+    book_keeping = (matching_cases, eval_cases)
+    return accuracy, book_keeping

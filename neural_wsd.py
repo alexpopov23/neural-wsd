@@ -33,28 +33,28 @@ def run_epoch(session, model, inputs1, inputs2, sequence_lengths, labels_classif
         fetches: A list of the tensors to be retrieved from the network run
 
     """
-    feed_dict = {}
-    if mode != "evaluation":
-        feed_dict = {model.train_inputs1: inputs1,
-                     model.train_seq_lengths: sequence_lengths,
-                     model.train_indices_wsd: indices,
-                     }
-        if wsd_method == "classification":
-            feed_dict.update({model.train_labels_wsd: labels_classif})
-        elif wsd_method == "context_embedding":
-            feed_dict.update({model.train_labels_wsd: labels_context})
-        elif wsd_method == "multitask":
-            feed_dict.update({model.train_labels_wsd: labels_classif,
-                              model.train_labels_wsd_context: labels_context})
-        if len(inputs2) > 0:
-            feed_dict.update({model.train_inputs2: inputs2})
-        if pos_classifier is True:
-            feed_dict.update({model.train_labels_pos: labels_pos})
-        if mode == "train":
-            ops = [model.train_op, model.cost, model.outputs_wsd, model.losses_wsd, model.logits_pos]
-        elif mode == "validation":
-            ops = [model.train_op, model.cost, model.outputs_wsd, model.losses_wsd, model.logits_pos,
-                   model.test_outputs_wsd, model.test_logits_pos]
+    # feed_dict = {}
+    # if mode != "evaluation":
+    feed_dict = {model.train_inputs1: inputs1,
+                 model.train_seq_lengths: sequence_lengths,
+                 model.train_indices_wsd: indices,
+                 }
+    if wsd_method == "classification":
+        feed_dict.update({model.train_labels_wsd: labels_classif})
+    elif wsd_method == "context_embedding":
+        feed_dict.update({model.train_labels_wsd: labels_context})
+    elif wsd_method == "multitask":
+        feed_dict.update({model.train_labels_wsd: labels_classif,
+                          model.train_labels_wsd_context: labels_context})
+    if len(inputs2) > 0:
+        feed_dict.update({model.train_inputs2: inputs2})
+    if pos_classifier is True:
+        feed_dict.update({model.train_labels_pos: labels_pos})
+    if mode == "train":
+        ops = [model.train_op, model.cost, model.outputs_wsd, model.losses_wsd, model.logits_pos]
+    elif mode == "validation":
+        ops = [model.train_op, model.cost, model.outputs_wsd, model.losses_wsd, model.logits_pos,
+               model.test_outputs_wsd, model.test_logits_pos]
     elif mode == "evaluation":
         ops = [model.outputs_wsd, model.logits_pos]
     fetches = session.run(ops, feed_dict=feed_dict)
@@ -94,7 +94,7 @@ if __name__ == "__main__":
     parser.add_argument('-max_seq_length', dest='max_seq_length', required=False, default=63,
                         help='Maximum length of a sentence to be passed to the network (the rest is cut off).')
     parser.add_argument("-mode", dest="mode", required=False, default="train",
-                        help="Is this is a training, evaluation or application run? Options: train, evaluate, "
+                        help="Is this is a training, evaluation or application run? Options: train, evaluation  , "
                              "application")
     parser.add_argument('-n_hidden', dest='n_hidden', required=False, default=200,
                         help='Size of the hidden layer.')
@@ -103,9 +103,9 @@ if __name__ == "__main__":
     parser.add_argument('-pos_classifier', dest='pos_classifier', required=False, default="False",
                         help='Should the system also perform POS tagging? Available only with classification.')
     parser.add_argument('-pos_tagset', dest='pos_tagset', required=False, default="coarsegrained",
-                        help='Whether the POS tags should be converted. Options are: coarsegrained, finegrained')
+                        help='Whether the POS tags should be converted. Options are: coarsegrained, finegrained.')
     parser.add_argument('-save_path', dest='save_path', required=False,
-                        help='Path to where the model should be saved.')
+                        help='Path to where the model should be saved, or path to the folder with a saved model.')
     parser.add_argument('-sensekey2synset_path', dest='sensekey2synset_path', required=False,
                         help='Path to mapping between sense annotations in the corpus and synset IDs in WordNet.')
     parser.add_argument('-test_data_path', dest='test_data', required=False,
@@ -169,33 +169,32 @@ if __name__ == "__main__":
     lemma2synsets = read_data.get_wordnet_lexicon(lexicon_path)
     if train_data_format == "naf":
         train_data, lemma2id, known_lemmas, pos_types, synset2id = read_data.read_data_naf(
-            train_data_path, lemma2synsets, mode=mode, wsd_method=wsd_method, pos_tagset=pos_tagset)
+            train_data_path, lemma2synsets, for_training=True, wsd_method=wsd_method, pos_tagset=pos_tagset)
     elif train_data_format == "uef":
         train_data, lemma2id, known_lemmas, pos_types, synset2id = read_data.read_data_uef(
-            train_data_path, sensekey2synset, lemma2synsets, mode=mode, wsd_method=wsd_method)
+            train_data_path, sensekey2synset, lemma2synsets, for_training=True, wsd_method=wsd_method)
     if test_data_format == "naf":
         test_data, _, _, _, _ = read_data.read_data_naf(
             test_data_path, lemma2synsets, lemma2id=lemma2id, known_lemmas=known_lemmas,
-            synset2id=synset2id, mode=mode, wsd_method=wsd_method, pos_tagset=pos_tagset)
+            synset2id=synset2id, for_training=False, wsd_method=wsd_method, pos_tagset=pos_tagset)
     elif test_data_format == "uef":
         test_data, _, _, _, _ = read_data.read_data_uef(
             test_data_path, sensekey2synset, lemma2synsets, lemma2id=lemma2id,
-            known_lemmas=known_lemmas, synset2id=synset2id, mode=mode, wsd_method=wsd_method)
+            known_lemmas=known_lemmas, synset2id=synset2id, for_training=False, wsd_method=wsd_method)
 
     ''' Transform the test data into the input format readable by the neural models'''
-    if mode != "evaluation":
-        (test_inputs1,
-         test_inputs2,
-         test_sequence_lengths,
-         test_labels_classif,
-         test_labels_context,
-         test_labels_pos,
-         test_indices,
-         test_target_lemmas,
-         test_synsets_gold,
-         test_pos_filters) = format_data.format_data(
-            test_data, emb1_src2id, embeddings1_input, embeddings1_case, synset2id, max_seq_length, embeddings1,
-            emb2_src2id, embeddings2_input, embeddings2_case, embeddings1_dim, pos_types, pos_classifier, wsd_method)
+    (test_inputs1,
+     test_inputs2,
+     test_sequence_lengths,
+     test_labels_classif,
+     test_labels_context,
+     test_labels_pos,
+     test_indices,
+     test_target_lemmas,
+     test_synsets_gold,
+     test_pos_filters) = format_data.format_data(
+        test_data, emb1_src2id, embeddings1_input, embeddings1_case, synset2id, max_seq_length, embeddings1,
+        emb2_src2id, embeddings2_input, embeddings2_case, embeddings1_dim, pos_types, pos_classifier, wsd_method)
 
     ''' Initialize the neural model'''
     model = None
@@ -224,27 +223,35 @@ if __name__ == "__main__":
     ''' Run training and/or evaluation'''
     session = tf.Session()
     saver = tf.train.Saver()
-    model_path = os.path.join(args.save_path, "model")
-    if not os.path.exists(model_path):
-        os.makedirs(model_path)
-    if wsd_method == "context_embedding" or wsd_method == "multitask":
-        model_path_context = os.path.join(args.save_path, "model_context")
-        if not os.path.exists(model_path_context):
-            os.makedirs(model_path_context)
+    if mode != "evaluation":
+        model_path = os.path.join(save_path, "model")
+        if not os.path.exists(model_path):
+            os.makedirs(model_path)
+        if wsd_method == "multitask":
+            model_path_context = os.path.join(save_path, "model_context")
+            if not os.path.exists(model_path_context):
+                os.makedirs(model_path_context)
     if mode == "evaluation":
-        if wsd_method == "classification":
-            with open(os.path.joint(model_path, "checkpoint"), "r") as f:
-                for line in f.readlines():
-                    if line.split()[0] == "model_checkpoint_path":
-                        model_checkpoint_path = line.split()[1]
-                        break
-                saver.restore(session, model_checkpoint_path)
-        app_data = args.test_data
+        with open(os.path.join(save_path, "checkpoint"), "r") as f:
+            for line in f.readlines():
+                if line.split()[0] == "model_checkpoint_path:":
+                    model_checkpoint_path = line.split()[1].rstrip("\n")
+                    model_checkpoint_path = model_checkpoint_path.strip("\"")
+                    break
+        saver.restore(session, model_checkpoint_path)
+        # saver.restore(session, save_path)
+        app_data = test_data
         match_wsd_classif_total, eval_wsd_classif_total, match_classif_wsd, eval_classif_wsd = [0, 0, 0, 0]
         match_wsd_context_total, eval_wsd_context_total, match_wsd_context, eval_wsd_context = [0, 0, 0, 0]
         match_pos_total, eval_pos_total, match_pos, eval_pos = [0, 0, 0, 0]
         for step in range(len(app_data) / batch_size + 1):
             offset = (step * batch_size) % (len(app_data))
+            if offset + batch_size > len(app_data):
+                buffer =  (offset + batch_size) - len(app_data)
+                zero_element = ["UNK", "UNK", ".", ["unspecified"], [-1]]
+                zero_sentence = batch_size * [zero_element]
+                buffer_data = buffer * [zero_sentence]
+                app_data.extend(buffer_data)
             (inputs1,
              inputs2,
              seq_lengths,

@@ -87,13 +87,13 @@ def add_synset_ids(wsd_method, data, known_lemmas, synset2id):
                 lemma = word[1]
                 pos = word[2]
                 if (wsd_method == "classification" or wsd_method == "multitask") and lemma not in known_lemmas:
-                    if pos == "NOUN" or globals.pos_map[pos] == "NOUN":
+                    if pos == "NOUN" or pos in globals.pos_map and globals.pos_map[pos] == "NOUN":
                         synset_ids.append(synset2id['notseen-n'])
-                    elif pos == "VERB" or globals.pos_map[pos] == "VERB":
+                    elif pos == "VERB" or pos in globals.pos_map and globals.pos_map[pos] == "VERB":
                         synset_ids.append(synset2id['notseen-v'])
-                    elif pos == "ADJ" or globals.pos_map[pos] == "ADJ":
+                    elif pos == "ADJ" or pos in globals.pos_map and globals.pos_map[pos] == "ADJ":
                         synset_ids.append(synset2id['notseen-a'])
-                    elif pos == "ADV" or globals.pos_map[pos] == "ADV":
+                    elif pos == "ADV" or pos in globals.pos_map and globals.pos_map[pos] == "ADV":
                         synset_ids.append(synset2id['notseen-r'])
                 else:
                     for synset in synsets:
@@ -174,7 +174,7 @@ def read_naf_file(path, pos_tagset, pos_types):
     return sentences, known_lemmas
 
 
-def read_data_naf(path, lemma2synsets, lemma2id={}, known_lemmas=set(), synset2id={}, mode="train",
+def read_data_naf(path, lemma2synsets, lemma2id={}, known_lemmas=set(), synset2id={}, for_training=True,
                   wsd_method="classification", pos_tagset="coarsegrained"):
     """Reads folders with files in NAF format
 
@@ -184,7 +184,7 @@ def read_data_naf(path, lemma2synsets, lemma2id={}, known_lemmas=set(), synset2i
         lemma2id: A dictionary, mapping lemmas to integer IDs (empty when reading training data)
         known_lemmas: A set of lemmas seen in the training data (empty when reading training data)
         synset2id: A dictionary, mapping synsets to integer IDs (empty when reading training data)
-        mode: A string, indicates whether the data is for training or testing
+        for_training: A boolean, indicates whether the data is for training or testing
         wsd_method: A string, indicates the disamguation method used ("classification", "context_embedding", "multitask")
         pos_tagset: A string, indicates whether POS tags should be coarse- or fine-grained
 
@@ -204,7 +204,7 @@ def read_data_naf(path, lemma2synsets, lemma2id={}, known_lemmas=set(), synset2i
         known_lemmas.update(new_lemmas)
         data.extend(new_data)
     pos_types["."] = len(pos_types)
-    if mode == "train":
+    if for_training is True:
         lemma2id, synset2id = get_lemma_synset_maps(wsd_method, lemma2synsets, known_lemmas, lemma2id,
                                                                     synset2id)
     data = add_synset_ids(wsd_method, data, known_lemmas, synset2id)
@@ -212,7 +212,7 @@ def read_data_naf(path, lemma2synsets, lemma2id={}, known_lemmas=set(), synset2i
 
 
 def read_data_uef(path, sensekey2synset, lemma2synsets, lemma2id={}, known_lemmas=set(), synset2id={},
-                  mode="train", wsd_method="classification"):
+                  for_training=True, wsd_method="classification"):
     """Reads a corpus in the Universal Evaluation Framework (UEF) format
 
     Args:
@@ -222,7 +222,7 @@ def read_data_uef(path, sensekey2synset, lemma2synsets, lemma2id={}, known_lemma
         lemma2id: A dictionary, mapping lemmas to integer IDs (empty when reading training data)
         known_lemmas: A set of lemmas seen in the training data (empty when reading training data)
         synset2id: A dictionary, mapping synsets to integer IDs (empty when reading training data)
-        mode: A string, indicates whether the data is for training or testing
+        for_training: A boolean, indicates whether the data is for training or testing
         wsd_method: A string, indicates the disamguation method used ("classification", "context_embedding", "multitask")
 
     Returns:
@@ -263,7 +263,7 @@ def read_data_uef(path, sensekey2synset, lemma2synsets, lemma2id={}, known_lemma
                 for element in elements:
                     wordform = element.text
                     lemma = element.get("lemma")
-                    if mode == "train":
+                    if for_training is True:
                         known_lemmas.add(lemma)
                     pos = element.get("pos")
                     if pos not in pos_types:
@@ -275,7 +275,7 @@ def read_data_uef(path, sensekey2synset, lemma2synsets, lemma2id={}, known_lemma
                         synsets = ["unspecified"]
                     current_sentence.append([wordform, lemma, pos, synsets])
                 data.append(current_sentence)
-    if mode == "train":
+    if for_training is True:
         lemma2id, synset2id = get_lemma_synset_maps(wsd_method, lemma2synsets, known_lemmas, lemma2id,
                                                                     synset2id)
     data = add_synset_ids(wsd_method, data, known_lemmas, synset2id)

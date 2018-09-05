@@ -301,7 +301,7 @@ if __name__ == "__main__":
                   str((100.0 * match_pos_total) / eval_pos_total) + "%"
         exit()
     else:
-        init = tf.initialize_all_variables()
+        init = tf.global_variables_initializer()
         feed_dict = {model.emb1_placeholder: embeddings1}
         if len(embeddings2) > 0:
             feed_dict.update({model.emb2_placeholder: embeddings2})

@@ -6,10 +6,12 @@
 lemma
 -lexicon_path
 /home/lenovo/tools/ukb_wsd/lkb_sources/wn30.lex
+-mode
+evaluation
 -n_hidden
 400
 -save_path
-/home/lenovo/dev/neural-wsd/models/test
+/home/lenovo/dev/neural-wsd/models/test/model/model_context
 -sensekey2synset_path
 /home/lenovo/dev/neural-wsd/data/sensekey2synset.pkl
 -max_seq_length

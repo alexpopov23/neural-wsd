@@ -11,7 +11,7 @@ from data_ops import format_data, read_data, load_embeddings, evaluation
 
 
 def run_epoch(session, model, inputs1, inputs2, sequence_lengths, labels_classif, labels_context, labels_pos, indices,
-              keep_prob, pos_classifier, mode, wsd_method):
+              pos_classifier, mode, wsd_method):
     """Runs one epoch of the neural model and returns a list of specified tensors
 
     Args:
@@ -24,7 +24,6 @@ def run_epoch(session, model, inputs1, inputs2, sequence_lengths, labels_classif
         labels_context: A list of arrays, the "gold" embeddings for the context embedding WSD method, if in use
         labels_pos: A list of (one-hot) arrays, the gold labels for the POS classification method, if in use
         indices: A list of integers, indexes which words in the data are to be disambiguated
-        keep_prob: A float, the probability of outputting the state of a neuron (dropout)
         pos_classifier: A boolean, indicates whether POS tagging should be carried out
         mode: A synset, indicates whether the epoch should be executed as: training, validation or evaluation
         wsd_method: A synset, indicates which model should be used: classification, context_embedding or multitask
@@ -381,7 +380,7 @@ if __name__ == "__main__":
             batch_loss = 0.0
         else:
             fetches = run_epoch(session, model, inputs1, inputs2, seq_lengths, labels_classif, labels_context,
-                                labels_pos, indices, keep_prob, pos_classifier, "train", wsd_method)
+                                labels_pos, indices, pos_classifier, "train", wsd_method)
             if fetches[1] is not None:
                 batch_loss += fetches[1]
         if test_accuracy_wsd > best_accuracy_wsd:

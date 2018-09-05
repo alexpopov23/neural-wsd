@@ -333,7 +333,7 @@ if __name__ == "__main__":
             print "Step number " + str(step)
             results.write('EPOCH: %d' % step + '\n')
             fetches = run_epoch(session, model, inputs1, inputs2, seq_lengths, labels_classif, labels_context,
-                                labels_pos, indices, keep_prob, pos_classifier, "validation", wsd_method)
+                                labels_pos, indices, pos_classifier, "validation", wsd_method)
             if fetches[1] is not None:
                 batch_loss += fetches[1]
             results.write('Averaged minibatch loss at step ' + str(step) + ': ' + str(batch_loss / 100.0) + '\n')

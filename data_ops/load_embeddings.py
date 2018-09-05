@@ -3,7 +3,7 @@ import os
 import gensim
 import numpy
 
-def load (embeddings_path, binary=False):
+def load(embeddings_path, binary=False):
     """Loads an embedding model with gensim
 
     Args:

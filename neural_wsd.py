@@ -115,7 +115,7 @@ if __name__ == "__main__":
                         help='The path to the gold corpus used for training.')
     parser.add_argument("-train_data_format", dest="train_data_format", required=False,
                         help="Specifies the format of the training corpus. Options: naf, uef")
-    parser.add_argument('-training_iterations', dest='training_iterations', required=False, default=100000,
+    parser.add_argument('-training_iterations', dest='training_iterations', required=False, default=100001,
                         help='How many iterations the network should train for.')
     parser.add_argument('-wsd_classifier', dest='wsd_classifier', required=True,
                         help='Should the system perform WSD?')

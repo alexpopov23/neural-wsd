@@ -265,14 +265,14 @@ if __name__ == "__main__":
                 synset2id, max_seq_length, embeddings1, emb2_src2id, embeddings2_input,
                 embeddings2_case, embeddings1_dim, pos_types, pos_classifier, wsd_method)
             fetches = run_epoch(session, model, inputs1, inputs2, seq_lengths, labels_classif, labels_context,
-                                labels_pos, indices, keep_prob, pos_classifier, "evaluation", wsd_method)
+                                labels_pos, indices, pos_classifier, "evaluation", wsd_method)
             if wsd_method == "classification":
                 _, _, [match_classif_wsd, eval_classif_wsd, match_pos, eval_pos] = evaluation.accuracy_classification(
                     fetches[0], target_lemmas, synsets_gold, pos_filters, synset2id, lemma2synsets, known_lemmas,
                     wsd_classifier, pos_classifier, fetches[1], labels_pos)
             elif wsd_method == "context_embedding":
                 _, [match_wsd_context, eval_wsd_context] = evaluation.accuracy_cosine_distance(
-                    fetches[2], target_lemmas, synsets_gold, pos_filters, lemma2synsets, embeddings1, emb1_src2id)
+                    fetches[0], target_lemmas, synsets_gold, pos_filters, lemma2synsets, embeddings1, emb1_src2id)
             elif wsd_method == "multitask":
                 _, _, [match_classif_wsd, eval_classif_wsd, _, _] = evaluation.accuracy_classification(
                     fetches[0][0], target_lemmas, synsets_gold, pos_filters, synset2id, lemma2synsets, known_lemmas,

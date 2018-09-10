@@ -388,12 +388,12 @@ if __name__ == "__main__":
         if wsd_method == "multitask" and test_accuracy_context > best_accuracy_context:
             best_accuracy_context = test_accuracy_context
         if args.save_path is not None:
-            if step == 100 or step > 100 and test_accuracy_wsd == best_accuracy_wsd:
+            if step == 10000 or step > 10000 and test_accuracy_wsd == best_accuracy_wsd:
                 for file in os.listdir(model_path):
                     os.remove(os.path.join(model_path, file))
                 saver.save(session, os.path.join(args.save_path, "model/model.ckpt"), global_step=step)
             if wsd_method == "multitask" and \
-                    (step == 100 or step > 100 and test_accuracy_context == best_accuracy_context):
+                    (step == 10000 or step > 10000 and test_accuracy_context == best_accuracy_context):
                 for file in os.listdir(model_path_context):
                     os.remove(os.path.join(model_path_context, file))
                 saver.save(session, os.path.join(args.save_path, "model_context/model_context.ckpt"), global_step=step)

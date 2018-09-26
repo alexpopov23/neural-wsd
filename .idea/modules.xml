@@ -3,6 +3,8 @@
   <component name="ProjectModuleManager">
     <modules>
       <module fileurl="file://$PROJECT_DIR$/.idea/neural-wsd.iml" filepath="$PROJECT_DIR$/.idea/neural-wsd.iml" />
+      <module fileurl="file://$USER_HOME$/tools/models-master/research/skip_thoughts/.idea/skip_thoughts.iml" filepath="$USER_HOME$/tools/models-master/research/skip_thoughts/.idea/skip_thoughts.iml" />
+      <module fileurl="file://$PROJECT_DIR$/../../../utils/.idea/utils.iml" filepath="$PROJECT_DIR$/../../../utils/.idea/utils.iml" />
     </modules>
   </component>
 </project>

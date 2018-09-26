@@ -151,7 +151,7 @@ def format_data(data, emb1_src2id, emb1_input, emb1_case, synset2id, max_seq_len
 
 def new_batch(offset, batch_size, data, emb1_src2id, embeddings1_input, embeddings1_case, synset2id, max_seq_length,
               embeddings1, emb2_src2id, embeddings2_input, embeddings2_case, embeddings1_dim, pos_types, pos_classifier,
-              wsd_method):
+              wsd_method, data_str, encoder):
     """Create a new batch from the training data. See format_data() for most arguments
 
     Additional args:
@@ -163,10 +163,12 @@ def new_batch(offset, batch_size, data, emb1_src2id, embeddings1_input, embeddin
 
     """
     batch = data[offset:(offset + batch_size)]
+    batch_str = data_str[offset:(offset + batch_size)]
     inputs1, inputs2, sequence_lengths, labels_classif, labels_context, labels_pos, indices, target_lemmas, \
     synsets_gold, pos_filters = \
         format_data(batch, emb1_src2id, embeddings1_input, embeddings1_case, synset2id,
                     max_seq_length, embeddings1, emb2_src2id, embeddings2_input, embeddings2_case, embeddings1_dim,
                     pos_types, pos_classifier, wsd_method)
+    skip_thoughts = encoder.encode(batch_str)
     return inputs1, inputs2, sequence_lengths, labels_classif, labels_context, labels_pos, indices, target_lemmas,\
-           synsets_gold, pos_filters
+           synsets_gold, pos_filters, skip_thoughts

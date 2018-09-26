@@ -8,6 +8,7 @@ import architectures
 import misc
 
 from data_ops import format_data, read_data, load_embeddings, evaluation
+from skip_thoughts import encoder_manager, configuration
 
 
 def run_epoch(session, model, inputs1, inputs2, sequence_lengths, labels_classif, labels_context, labels_pos, indices,
@@ -107,6 +108,10 @@ if __name__ == "__main__":
                         help='Path to where the model should be saved, or path to the folder with a saved model.')
     parser.add_argument('-sensekey2synset_path', dest='sensekey2synset_path', required=False,
                         help='Path to mapping between sense annotations in the corpus and synset IDs in WordNet.')
+    parser.add_argument('-skip_thoughts', dest='skip_thoughts', required=False, default="False",
+                        help='Whether to feed skip-thought representations of the sentences to the NN.')
+    parser.add_argument('-skip_thoughts_model', dest='skip_thoughts_model', required=False,
+                        help='Path to a file with the paths to the model resources.')
     parser.add_argument('-test_data_path', dest='test_data', required=False,
                         help='The path to the gold corpus used for testing.')
     parser.add_argument("-test_data_format", dest="test_data_format", required=False,
@@ -147,6 +152,7 @@ if __name__ == "__main__":
     pos_tagset = args.pos_tagset
     save_path = args.save_path
     sensekey2synset_path = args.sensekey2synset_path
+    skip_thoughts = misc.str2bool(args.skip_thoughts)
     test_data_path = args.test_data
     test_data_format = args.test_data_format
     train_data_path = args.train_data
@@ -170,16 +176,36 @@ if __name__ == "__main__":
         train_data, lemma2id, known_lemmas, pos_types, synset2id = read_data.read_data_naf(
             train_data_path, lemma2synsets, for_training=True, wsd_method=wsd_method, pos_tagset=pos_tagset)
     elif train_data_format == "uef":
-        train_data, lemma2id, known_lemmas, pos_types, synset2id = read_data.read_data_uef(
+        train_data, train_data_str, lemma2id, known_lemmas, pos_types, synset2id = read_data.read_data_uef(
             train_data_path, sensekey2synset, lemma2synsets, for_training=True, wsd_method=wsd_method)
     if test_data_format == "naf":
         test_data, _, _, _, _ = read_data.read_data_naf(
             test_data_path, lemma2synsets, lemma2id=lemma2id, known_lemmas=known_lemmas,
             synset2id=synset2id, for_training=False, wsd_method=wsd_method, pos_tagset=pos_tagset)
     elif test_data_format == "uef":
-        test_data, _, _, _, _ = read_data.read_data_uef(
+        test_data, test_data_str, _, _, _, _ = read_data.read_data_uef(
             test_data_path, sensekey2synset, lemma2synsets, lemma2id=lemma2id,
             known_lemmas=known_lemmas, synset2id=synset2id, for_training=False, wsd_method=wsd_method)
+
+    if skip_thoughts == True:
+        skip_thoughts_model = args.skip_thoughts_model
+        with open(skip_thoughts_model, "r") as resources:
+            for resource in resources.readlines():
+                fields = resource.split("=")
+                name, path = fields[0].strip(), fields[1].strip()
+                if name == "embeddings":
+                    EMBEDDING_MATRIX_FILE = path
+                elif name == "ckp":
+                    CHECKPOINT_PATH = path
+                elif name == "vocab":
+                    VOCAB_FILE = path
+        encoder = encoder_manager.EncoderManager()
+        encoder.load_model(configuration.model_config(),
+                           vocabulary_file=VOCAB_FILE,
+                           embedding_matrix_file=EMBEDDING_MATRIX_FILE,
+                           checkpoint_path=CHECKPOINT_PATH)
+        test_skipt_thoughts = encoder.encode(test_data_str)
+
 
     ''' Transform the test data into the input format readable by the neural models'''
     (test_inputs1,
@@ -324,10 +350,12 @@ if __name__ == "__main__":
          indices,
          target_lemmas,
          synsets_gold,
-         pos_filters) = format_data.new_batch(
+         pos_filters,
+         sent_encodings) = format_data.new_batch(
             offset, batch_size, train_data, emb1_src2id, embeddings1_input, embeddings1_case,
             synset2id, max_seq_length, embeddings1, emb2_src2id, embeddings2_input,
-            embeddings2_case, embeddings1_dim, pos_types, pos_classifier, wsd_method)
+            embeddings2_case, embeddings1_dim, pos_types, pos_classifier, wsd_method,
+            train_data_str, encoder)
         test_accuracy_wsd, test_accuracy_context = 0.0, 0.0
         if step % 100 == 0:
             print "Step number " + str(step)

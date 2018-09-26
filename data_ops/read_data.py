@@ -235,6 +235,7 @@ def read_data_uef(path, sensekey2synset, lemma2synsets, lemma2id={}, known_lemma
 
     """
     data = []
+    data_str = []
     pos_types, pos_count = {}, 0
     path_data = ""
     path_keys = ""
@@ -259,6 +260,7 @@ def read_data_uef(path, sensekey2synset, lemma2synsets, lemma2id={}, known_lemma
             sentences = text.findall("sentence")
             for sentence in sentences:
                 current_sentence = []
+                current_sentence_str = ""
                 elements = sentence.findall(".//")
                 for element in elements:
                     wordform = element.text
@@ -274,9 +276,11 @@ def read_data_uef(path, sensekey2synset, lemma2synsets, lemma2id={}, known_lemma
                     else:
                         synsets = ["unspecified"]
                     current_sentence.append([wordform, lemma, pos, synsets])
+                    current_sentence_str += wordform + " "
                 data.append(current_sentence)
+                data_str.append(current_sentence_str)
     if for_training is True:
         lemma2id, synset2id = get_lemma_synset_maps(wsd_method, lemma2synsets, known_lemmas, lemma2id,
                                                                     synset2id)
     data = add_synset_ids(wsd_method, data, known_lemmas, synset2id)
-    return data, lemma2id, known_lemmas, pos_types, synset2id
+    return data, data_str, lemma2id, known_lemmas, pos_types, synset2id

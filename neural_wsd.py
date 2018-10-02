@@ -204,7 +204,7 @@ if __name__ == "__main__":
                            vocabulary_file=VOCAB_FILE,
                            embedding_matrix_file=EMBEDDING_MATRIX_FILE,
                            checkpoint_path=CHECKPOINT_PATH)
-        test_skipt_thoughts = encoder.encode(test_data_str)
+        test_skip_thoughts = encoder.encode(test_data_str)
 
 
     ''' Transform the test data into the input format readable by the neural models'''

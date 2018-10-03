@@ -1,1 +1,1 @@
-from . import classifier, context_embedding, multitask_wsd
+from . import classifier, context_embedding, multitask_wsd, classifier_skipthoughts

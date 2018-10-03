@@ -14,12 +14,16 @@ class ClassifierSoftmax(AbstractModel):
                                n_hidden, n_hidden_layers, learning_rate, keep_prob, test_inputs1, test_inputs2,
                                test_seq_lengths, test_indices_wsd, test_labels, wsd_classifier, pos_classifier,
                                pos_classes, test_pos_labels)
+        # scope.reuse_variables()
         if wsd_classifier is True:
-            self.weights_wsd = tf.get_variable(name="softmax_wsd-w", shape=[2 * n_hidden + skip_thoughts_dim, output_dim],
+            self.weights_wsd = tf.get_variable(name="softmax_wsd_skip-w", shape=[2 * n_hidden + skip_thoughts_dim, output_dim],
                                                dtype=tf.float32)
         if pos_classifier is True:
-            self.weights_pos = tf.get_variable(name="softmax_pos-w", shape=[2 * n_hidden + skip_thoughts_dim, pos_classes],
+            self.weights_pos = tf.get_variable(name="softmax_pos-   skip-w", shape=[2 * n_hidden + skip_thoughts_dim, pos_classes],
                                                dtype=tf.float32)
+        self.batch_size = batch_size
+        self.max_seq_length = max_seq_length
+        self.skip_thoughts_dim = skip_thoughts_dim
         self.skip_thoughts_test = tf.constant(skip_thoughts_test, tf.float32, name="skip_thoughts_test")
         self.skip_thoughts_train = tf.placeholder(tf.float32, shape=[batch_size, skip_thoughts_dim],
                                                   name="skip_thoughts_train")
@@ -43,6 +47,10 @@ class ClassifierSoftmax(AbstractModel):
             cost_wsd: A float, the mean loss for the whole input
 
         """
+        if is_training is True:
+            skip_thoughts = self.skip_thoughts_train
+        else:
+            skip_thoughts = self.skip_thoughts_test
         if classif_type == "wsd":
             if is_training is True:
                 indices = self.train_indices_wsd
@@ -50,7 +58,12 @@ class ClassifierSoftmax(AbstractModel):
             else:
                 indices = self.test_indices_wsd
                 labels = self.test_labels_wsd
-            target_outputs = tf.gather(rnn_outputs, indices)
+            # skip_thoughts = tf.reshape(skip_thoughts, [self.batch_size, 1, self.skip_thoughts_dim])
+            skip_thoughts = tf.nn.l2_normalize(skip_thoughts)
+            rnn_outputs = tf.nn.l2_normalize(rnn_outputs)
+            skip_thoughts = tf.tile(skip_thoughts, [self.max_seq_length, 1])
+            outputs = tf.concat([rnn_outputs, skip_thoughts], 1)
+            target_outputs = tf.gather(outputs, indices)
             weights, biases = self.weights_wsd, self.biases_wsd
         elif classif_type == "pos":
             target_outputs = rnn_outputs
@@ -59,12 +72,7 @@ class ClassifierSoftmax(AbstractModel):
             else:
                 labels = self.test_labels_pos
             weights, biases = self.weights_pos, self.biases_pos
-        if is_training is True:
-            skip_thoughts = self.skip_thoughts_train
-        else:
-            skip_thoughts = self.skip_thoughts_test
-        target_outputs = target_outputs + skip_thoughts
-        logits = tf.matmul(target_outputs, weights) + biases
+        logits = tf.nn.sigmoid(tf.matmul(target_outputs, weights) + biases)
         losses = tf.nn.softmax_cross_entropy_with_logits(logits=logits, labels=labels)
         cost_wsd = tf.reduce_mean(losses)
         return logits, losses, cost_wsd

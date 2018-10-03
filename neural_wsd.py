@@ -12,7 +12,7 @@ from skip_thoughts import encoder_manager, configuration
 
 
 def run_epoch(session, model, inputs1, inputs2, sequence_lengths, labels_classif, labels_context, labels_pos, indices,
-              pos_classifier, mode, wsd_method):
+              pos_classifier, mode, wsd_method, skip_thoughts, skip_thoughts_train):
     """Runs one epoch of the neural model and returns a list of specified tensors
 
     Args:
@@ -28,6 +28,8 @@ def run_epoch(session, model, inputs1, inputs2, sequence_lengths, labels_classif
         pos_classifier: A boolean, indicates whether POS tagging should be carried out
         mode: A synset, indicates whether the epoch should be executed as: training, validation or evaluation
         wsd_method: A synset, indicates which model should be used: classification, context_embedding or multitask
+        skip_thoughts: A bool, indicates whether skipthoughts should be input to the model
+        skip_thoughts_train: A list of vectors, the sentence representations
 
     Returns:
         fetches: A list of the tensors to be retrieved from the network run
@@ -41,6 +43,8 @@ def run_epoch(session, model, inputs1, inputs2, sequence_lengths, labels_classif
                  }
     if wsd_method == "classification":
         feed_dict.update({model.train_labels_wsd: labels_classif})
+        if skip_thoughts == True:
+            feed_dict.update({model.skip_thoughts_train: skip_thoughts_train})
     elif wsd_method == "context_embedding":
         feed_dict.update({model.train_labels_wsd: labels_context})
     elif wsd_method == "multitask":
@@ -204,7 +208,9 @@ if __name__ == "__main__":
                            vocabulary_file=VOCAB_FILE,
                            embedding_matrix_file=EMBEDDING_MATRIX_FILE,
                            checkpoint_path=CHECKPOINT_PATH)
-        test_skip_thoughts = encoder.encode(test_data_str)
+        skip_thoughts_test = encoder.encode(test_data_str)
+    else:
+        encoder = None
 
 
     ''' Transform the test data into the input format readable by the neural models'''
@@ -223,13 +229,20 @@ if __name__ == "__main__":
 
     ''' Initialize the neural model'''
     model = None
-    if wsd_method == "classification":
+    if wsd_method == "classification"                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               :
         output_dimension = len(synset2id)
-        model = architectures.classifier.ClassifierSoftmax(
-            output_dimension, len(embeddings1), embeddings1_dim, len(embeddings2), embeddings2_dim, batch_size,
-            max_seq_length, n_hidden, n_hidden_layers, learning_rate, keep_prob, test_inputs1, test_inputs2,
-            test_sequence_lengths, test_indices, test_labels_classif, wsd_classifier, pos_classifier, len(pos_types),
-            test_labels_pos)
+        if skip_thoughts == True:
+            model = architectures.classifier_skipthoughts.ClassifierSoftmax(
+                output_dimension, len(embeddings1), embeddings1_dim, len(embeddings2), embeddings2_dim, batch_size,
+                max_seq_length, n_hidden, n_hidden_layers, learning_rate, keep_prob, test_inputs1, test_inputs2,
+                test_sequence_lengths, test_indices, test_labels_classif, wsd_classifier, pos_classifier,
+                                                                                                                                                                                                                len(pos_types), test_labels_pos, skip_thoughts_dim=2400, skip_thoughts_test=skip_thoughts_test)
+        else:
+            model = architectures.classifier.ClassifierSoftmax(
+                output_dimension, len(embeddings1), embeddings1_dim, len(embeddings2), embeddings2_dim, batch_size,
+                max_seq_length, n_hidden, n_hidden_layers, learning_rate, keep_prob, test_inputs1, test_inputs2,
+                test_sequence_lengths, test_indices, test_labels_classif, wsd_classifier, pos_classifier, len(pos_types),
+                test_labels_pos)
     elif wsd_method == "context_embedding":
         output_dimension = embeddings1_dim
         model = architectures.context_embedding.ContextEmbedder(
@@ -244,6 +257,7 @@ if __name__ == "__main__":
             max_seq_length, n_hidden, n_hidden_layers, learning_rate, keep_prob, test_inputs1, test_inputs2,
             test_sequence_lengths, test_indices, test_labels_classif, test_labels_context, wsd_classifier,
             pos_classifier, len(pos_types), test_labels_pos)
+
 
     ''' Run training and/or evaluation'''
     session = tf.Session()
@@ -286,10 +300,11 @@ if __name__ == "__main__":
              indices,
              target_lemmas,
              synsets_gold,
-             pos_filters) = format_data.new_batch(
+             pos_filters,
+             skip_thoughts_train) = format_data.new_batch(
                 offset, batch_size, app_data, emb1_src2id, embeddings1_input, embeddings1_case,
                 synset2id, max_seq_length, embeddings1, emb2_src2id, embeddings2_input,
-                embeddings2_case, embeddings1_dim, pos_types, pos_classifier, wsd_method)
+                embeddings2_case, embeddings1_dim, pos_types, pos_classifier, wsd_method, encoder)
             fetches = run_epoch(session, model, inputs1, inputs2, seq_lengths, labels_classif, labels_context,
                                 labels_pos, indices, pos_classifier, "evaluation", wsd_method)
             if wsd_method == "classification":
@@ -351,7 +366,7 @@ if __name__ == "__main__":
          target_lemmas,
          synsets_gold,
          pos_filters,
-         sent_encodings) = format_data.new_batch(
+         skip_thoughts_train) = format_data.new_batch(
             offset, batch_size, train_data, emb1_src2id, embeddings1_input, embeddings1_case,
             synset2id, max_seq_length, embeddings1, emb2_src2id, embeddings2_input,
             embeddings2_case, embeddings1_dim, pos_types, pos_classifier, wsd_method,
@@ -361,7 +376,8 @@ if __name__ == "__main__":
             print "Step number " + str(step)
             results.write('EPOCH: %d' % step + '\n')
             fetches = run_epoch(session, model, inputs1, inputs2, seq_lengths, labels_classif, labels_context,
-                                labels_pos, indices, pos_classifier, "validation", wsd_method)
+                                labels_pos, indices, pos_classifier, "validation", wsd_method, skip_thoughts,
+                                skip_thoughts_train)
             if fetches[1] is not None:
                 batch_loss += fetches[1]
             results.write('Averaged minibatch loss at step ' + str(step) + ': ' + str(batch_loss / 100.0) + '\n')
@@ -408,7 +424,8 @@ if __name__ == "__main__":
             batch_loss = 0.0
         else:
             fetches = run_epoch(session, model, inputs1, inputs2, seq_lengths, labels_classif, labels_context,
-                                labels_pos, indices, pos_classifier, "train", wsd_method)
+                                labels_pos, indices, pos_classifier, "train", wsd_method, skip_thoughts,
+                                skip_thoughts_train)
             if fetches[1] is not None:
                 batch_loss += fetches[1]
         if test_accuracy_wsd > best_accuracy_wsd:

@@ -157,6 +157,7 @@ def new_batch(offset, batch_size, data, emb1_src2id, embeddings1_input, embeddin
     Additional args:
         offset: An int, the position where the new batch should be extracted from the training data
         batch_size: An int, the size of the new batch
+        encoder: The skipthoughts RNN, for obtaining sentence representations
 
     Returns:
         see format_data()

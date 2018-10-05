@@ -3,6 +3,7 @@
   <component name="ProjectModuleManager">
     <modules>
       <module fileurl="file://$PROJECT_DIR$/.idea/neural-wsd.iml" filepath="$PROJECT_DIR$/.idea/neural-wsd.iml" />
+      <module fileurl="file://$USER_HOME$/tools/neural_sequence_labeling-master/.idea/neural_sequence_labeling-master.iml" filepath="$USER_HOME$/tools/neural_sequence_labeling-master/.idea/neural_sequence_labeling-master.iml" />
     </modules>
   </component>
 </project>

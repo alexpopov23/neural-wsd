@@ -159,22 +159,22 @@ class AbstractModel:
             rnn_outputs, _ = tf.nn.bidirectional_dynamic_rnn(fw_multicell, bw_multicell, embedded_inputs,
                                                              dtype="float32", sequence_length=seq_lengths)
             rnn_outputs = tf.concat(rnn_outputs, 2)
-            rnn_outputs = self.multi_head_attention(rnn_outputs, rnn_outputs, 8, None, drop_rate=(1-self.keep_prob),
+            rnn_outputs = tf.layers.dropout(rnn_outputs, rate=(1-self.keep_prob), training=is_training)
+            word_project = tf.layers.dense(embedded_inputs, units=2 * n_hidden, use_bias=False)
+            rnn_outputs = rnn_outputs + word_project
+            outputs = self.layer_normalize(rnn_outputs)
+            attn_outputs = self.multi_head_attention(outputs, outputs, 1, None, drop_rate=(1-self.keep_prob),
                                                     is_train=is_training)
-            # attention_mechanism = tf.contrib.seq2seq.LuongAttention(
-            #     n_hidden * 2, attention_states,
-            #     memory_sequence_length=seq_lengths)
-            # attention_cell = tf.contrib.seq2seq.AttentionWrapper(
-            #     decoder_cell, attention_mechanism,
-            #     attention_layer_size=num_units)
+            attn_outputs = attn_outputs + outputs
+            outputs = self.layer_normalize(attn_outputs)
             scope.reuse_variables()
-            rnn_outputs = tf.reshape(rnn_outputs, [-1, 2 * n_hidden])
+            outputs = tf.reshape(outputs, [-1, 2 * n_hidden])
             logits_pos, losses_pos, cost_pos = [], [], 0.0
             if pos_classifier is True:
-                logits_pos, losses_pos, cost_pos = self.output_layer(rnn_outputs, is_training, classif_type="pos")
+                logits_pos, losses_pos, cost_pos = self.output_layer(outputs, is_training, classif_type="pos")
             outputs_wsd, losses_wsd, cost_wsd = [], [], 0.0
             if wsd_classifier is True:
-                outputs_wsd, losses_wsd, cost_wsd = self.output_layer(rnn_outputs, is_training, classif_type="wsd")
+                outputs_wsd, losses_wsd, cost_wsd = self.output_layer(outputs, is_training, classif_type="wsd")
             cost = cost_wsd + cost_pos
         return cost, outputs_wsd, losses_wsd, logits_pos
 
@@ -236,4 +236,3 @@ class AbstractModel:
             outputs += queries  # residual connection
             outputs = self.layer_normalize(outputs)
             return outputs
-

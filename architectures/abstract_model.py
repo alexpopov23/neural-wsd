@@ -38,6 +38,7 @@ class AbstractModel:
         self.emb1_dim = emb1_dim
         self.emb2_dim = emb2_dim
         self.batch_size = batch_size
+        self.max_seq_length = max_seq_length
         self.n_hidden = n_hidden
         self.n_hidden_layers = n_hidden_layers
         self.learning_rate = learning_rate
@@ -52,7 +53,7 @@ class AbstractModel:
             self.embeddings2 = tf.Variable(self.emb2_placeholder)
             self.set_embeddings2 = tf.assign(self.embeddings2, self.emb2_placeholder, validate_shape=False)
         if wsd_classifier is True:
-            self.weights_wsd = tf.get_variable(name="softmax_wsd-w", shape=[2 * n_hidden, output_dim],
+            self.weights_wsd = tf.get_variable(name="softmax_wsd-w", shape=[2 * 2 * n_hidden, output_dim],
                                                dtype=tf.float32)
             self.biases_wsd = tf.get_variable(name="softmax_wsd-b", shape=[output_dim], dtype=tf.float32)
             self.train_labels_wsd = tf.placeholder(name="train_labels_wsd", dtype=test_labels_wsd.dtype, shape=[None, output_dim])
@@ -83,6 +84,8 @@ class AbstractModel:
         if vocab_size2 > 0:
             self.test_inputs2 = tf.constant(test_inputs2, tf.int32, name="test_inputs2")
         self.test_seq_lengths = tf.constant(test_seq_lengths, tf.int32, name="test_seq_lengths")
+        self.attn_param = tf.get_variable(name="attention_param_vector", shape=[2*n_hidden],
+                                          dtype=tf.float32)
 
     def run_neural_model(self):
         """Runs the model: embeds the inputs, calculates recurrences and performs classification/regression"""
@@ -90,8 +93,8 @@ class AbstractModel:
             embedded_inputs = self.embed_inputs(self.train_inputs1, self.train_inputs2)
         else:
             embedded_inputs = self.embed_inputs(self.train_inputs1)
-        self.cost, self.outputs_wsd, self.losses_wsd, self.logits_pos = self.biRNN_WSD\
-            (True, self.n_hidden_layers, self.n_hidden, self.train_seq_lengths, embedded_inputs,
+        self.cost, self.outputs_wsd, self.losses_wsd, self.logits_pos, self.attn_weights = self.biRNN_WSD\
+            (True, self.n_hidden_layers, self.n_hidden, self.train_seq_lengths, embedded_inputs, self.batch_size,
              self.wsd_classifier, self.pos_classifier)
         self.train_op = tf.train.GradientDescentOptimizer(self.learning_rate).minimize(self.cost)
         if self.vocab_size2 > 0:
@@ -99,8 +102,8 @@ class AbstractModel:
         else:
             embedded_inputs = self.embed_inputs(self.test_inputs1)
         tf.get_variable_scope().reuse_variables()
-        _, self.test_outputs_wsd, _, self.test_logits_pos = self.biRNN_WSD\
-            (False, self.n_hidden_layers, self.n_hidden, self.test_seq_lengths, embedded_inputs,
+        _, self.test_outputs_wsd, _, self.test_logits_pos, _ = self.biRNN_WSD\
+            (False, self.n_hidden_layers, self.n_hidden, self.test_seq_lengths, embedded_inputs, tf.shape(self.test_inputs1)[0],
              self.wsd_classifier, self.pos_classifier)
 
 
@@ -124,7 +127,7 @@ class AbstractModel:
         return embedded_inputs
 
 
-    def biRNN_WSD(self, is_training, n_hidden_layers, n_hidden, seq_lengths, embedded_inputs, wsd_classifier=True,
+    def biRNN_WSD(self, is_training, n_hidden_layers, n_hidden, seq_lengths, embedded_inputs,  batch_size, wsd_classifier=True,
                   pos_classifier=False):
         """Bi-directional long short-term memory (Bi-LSTM) layer
 
@@ -148,27 +151,35 @@ class AbstractModel:
             initializer = tf.random_uniform_initializer(-1, 1)
 
             def lstm_cell():
-                lstm_cell = tf.contrib.rnn.LSTMCell(n_hidden, initializer=initializer)
+                lstm_cell = tf.nn.rnn_cell.LSTMCell(n_hidden, initializer=initializer)
                 if is_training:
-                    lstm_cell = tf.contrib.rnn.DropoutWrapper\
+                    lstm_cell = tf.nn.rnn_cell.DropoutWrapper\
                         (lstm_cell, input_keep_prob=self.keep_prob, output_keep_prob=self.keep_prob)
                 return lstm_cell
 
-            fw_multicell = tf.contrib.rnn.MultiRNNCell([lstm_cell() for _ in range(n_hidden_layers)])
-            bw_multicell = tf.contrib.rnn.MultiRNNCell([lstm_cell() for _ in range(n_hidden_layers)])
+            fw_multicell = tf.nn.rnn_cell.MultiRNNCell([lstm_cell() for _ in range(n_hidden_layers)])
+            bw_multicell = tf.nn.rnn_cell.MultiRNNCell([lstm_cell() for _ in range(n_hidden_layers)])
             rnn_outputs, _ = tf.nn.bidirectional_dynamic_rnn(fw_multicell, bw_multicell, embedded_inputs,
                                                              dtype="float32", sequence_length=seq_lengths)
             rnn_outputs = tf.concat(rnn_outputs, 2)
-            rnn_outputs = tf.layers.dropout(rnn_outputs, rate=(1-self.keep_prob), training=is_training)
-            word_project = tf.layers.dense(embedded_inputs, units=2 * n_hidden, use_bias=False)
-            rnn_outputs = rnn_outputs + word_project
-            outputs = self.layer_normalize(rnn_outputs)
-            attn_outputs = self.multi_head_attention(outputs, outputs, 1, None, drop_rate=(1-self.keep_prob),
-                                                    is_train=is_training)
-            attn_outputs = attn_outputs + outputs
-            outputs = self.layer_normalize(attn_outputs)
+            # rnn_outputs = tf.layers.dropout(rnn_outputs, rate=(1-self.keep_prob), training=is_training)
+            # word_project = tf.layers.dense(embedded_inputs, units=2 * n_hidden, use_bias=False)
+            # rnn_outputs = rnn_outputs + word_project
+            # outputs = self.layer_normalize(rnn_outputs)
+            # attn_outputs = self.multi_head_attention(outputs, outputs, 1, None, drop_rate=(1-self.keep_prob),
+            #                                         is_train=is_training)
+            rnn_outputs_flipped = tf.transpose(rnn_outputs, [0, 2, 1])
+            attn_weights = tf.matmul(tf.tile(tf.reshape(self.attn_param, [1, 1, 2*n_hidden]), [batch_size, 1, 1]),
+                                     tf.nn.tanh(rnn_outputs_flipped))
+            attn_weights = tf.nn.softmax(attn_weights)
+            ctx_vector = tf.matmul(rnn_outputs_flipped, tf.transpose(attn_weights, [0, 2, 1]))
+            ctx_vector = tf.tile(tf.transpose(ctx_vector, [0, 2, 1]), [1, self.max_seq_length, 1])
+            outputs = tf.concat((rnn_outputs, ctx_vector), axis=2)
+            # attn_outputs = attn_outputs + outputs
+            #TODO non-linearity
+            #outputs = self.layer_normalize(attn_outputs)
             scope.reuse_variables()
-            outputs = tf.reshape(outputs, [-1, 2 * n_hidden])
+            outputs = tf.reshape(outputs, [-1, 2 * 2 * n_hidden])
             logits_pos, losses_pos, cost_pos = [], [], 0.0
             if pos_classifier is True:
                 logits_pos, losses_pos, cost_pos = self.output_layer(outputs, is_training, classif_type="pos")
@@ -176,7 +187,7 @@ class AbstractModel:
             if wsd_classifier is True:
                 outputs_wsd, losses_wsd, cost_wsd = self.output_layer(outputs, is_training, classif_type="wsd")
             cost = cost_wsd + cost_pos
-        return cost, outputs_wsd, losses_wsd, logits_pos
+        return cost, outputs_wsd, losses_wsd, logits_pos, attn_weights
 
 
     def output_layer(self, rnn_outputs, is_training, classif_type):

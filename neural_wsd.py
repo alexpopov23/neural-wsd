@@ -50,7 +50,7 @@ def run_epoch(session, model, inputs1, inputs2, sequence_lengths, labels_classif
     if pos_classifier is True:
         feed_dict.update({model.train_labels_pos: labels_pos})
     if mode == "train":
-        ops = [model.train_op, model.cost, model.outputs_wsd, model.losses_wsd, model.logits_pos]
+        ops = [model.train_op, model.cost, model.outputs_wsd, model.losses_wsd, model.logits_pos, model.attn_weights]
     elif mode == "validation":
         ops = [model.train_op, model.cost, model.outputs_wsd, model.losses_wsd, model.logits_pos,
                model.test_outputs_wsd, model.test_logits_pos]
